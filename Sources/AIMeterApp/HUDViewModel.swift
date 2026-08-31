@@ -98,6 +98,7 @@ final class HUDViewModel: ObservableObject {
                     connected += 1
                     row.planName = snapshot.planName
                     row.fetchedAt = snapshot.fetchedAt
+                    row.status = snapshot.status ?? .ok
                     row.windows = snapshot.windows.map { window in
                         .init(id: "\(window.kind.rawValue)-\(window.label ?? "")",
                               title: window.title,

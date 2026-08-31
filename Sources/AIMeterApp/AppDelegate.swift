@@ -30,7 +30,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return [
             ClaudeProvider(session: .shared, tokenSource: claudeTokens),
-            CodexProvider(session: .shared),
+            // auth.json live-read; a vault-imported token is the fallback when
+            // ~/.codex/auth.json is missing (Deferred from M2, folded in here).
+            CodexProvider(session: .shared,
+                          tokenFallback: VaultCodexTokenFallback(vault: vault,
+                                                                 providerID: CodexProvider.providerID)),
+            // auth.json live-read preferred, imported key as fallback.
+            OpenCodeProvider(session: .shared,
+                             tokenSource: CompositeOpenCodeTokenSource([
+                                 FileOpenCodeTokenSource(),
+                                 VaultOpenCodeTokenSource(vault: vault, providerID: OpenCodeProvider.providerID),
+                             ])),
+            AntigravityProvider(),
+            OllamaProvider(),
+            ManualProvider(),
         ]
     }
 

@@ -126,6 +126,11 @@ private struct ProviderCard: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+            } else {
+                // Successful fetch with no windows (e.g. Manual with no plans).
+                Text("No plans yet — add them in Settings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(10)

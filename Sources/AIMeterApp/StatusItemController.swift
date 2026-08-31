@@ -122,7 +122,10 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         if settingsController == nil {
             settingsController = SettingsWindowController()
         }
-        settingsController?.show()
+        // Manual plan edits should surface in the HUD immediately.
+        settingsController?.show(onPlansChanged: { [weak self] in
+            self?.viewModel.refresh(ProviderID("manual"))
+        })
     }
 
     func windowWillClose(_ notification: Notification) {}
