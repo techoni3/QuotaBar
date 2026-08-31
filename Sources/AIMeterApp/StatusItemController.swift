@@ -5,6 +5,9 @@ import SwiftUI
 /// Owns the menu bar status item, its menu, and the HUD panel toggle.
 @MainActor
 final class StatusItemController: NSObject, NSWindowDelegate {
+    /// Fixed HUD width — the 2-column provider-card grid (see HUDRootView).
+    static let hudPanelWidth: CGFloat = 660
+
     private var statusItem: NSStatusItem!
     private var hudPanel: HUDPanel?
     private var settingsController: SettingsWindowController?
@@ -113,7 +116,14 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private func makeHUDPanel() -> HUDPanel {
         let panel = HUDPanel()
         panel.delegate = self
-        panel.contentView = NSHostingView(rootView: HUDRootView(viewModel: viewModel))
+        let hosting = NSHostingView(rootView: HUDRootView(viewModel: viewModel))
+        panel.contentView = hosting
+        // Auto-size to the content: width is fixed by the 2-column card grid,
+        // height follows the fitted content (clamped so long lists scroll).
+        let fitting = hosting.fittingSize
+        let size = NSSize(width: Self.hudPanelWidth,
+                          height: min(max(fitting.height, 120), 720))
+        panel.setContentSize(size)
         return panel
     }
 
@@ -133,7 +143,9 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         let x = max(screen.visibleFrame.minX,
                     min(buttonRectOnScreen.midX - panel.frame.width / 2,
                         screen.visibleFrame.maxX - panel.frame.width))
-        let y = screen.visibleFrame.minY
+        // Anchor directly under the status item (Audit fix: was screen.minY,
+        // which put the panel at the BOTTOM of the screen).
+        let y = buttonRectOnScreen.minY - panel.frame.height - 8
         return NSPoint(x: x.rounded(), y: y.rounded())
     }
 
