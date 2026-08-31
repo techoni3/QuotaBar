@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Direct (Developer ID) distribution: NO App Sandbox. Hardened runtime is
+         applied at codesign time (--options runtime). Nothing else is granted:
+         no network-client entitlement (providers' endpoints need none beyond
+         the default), no dyld-environment-variables, no unsigned-executable-
+         memory, no library validation exceptions. Keychain live-reads of the
+         user's own items surface the system ACL prompt (Decision 3). -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+</dict>
+</plist>
