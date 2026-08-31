@@ -9,3 +9,5 @@ xcuserdata/
 *.ipa
 *.dmg
 dist/
+# Derived asset intermediates (regenerate via scripts/make-assets.swift)
+Assets/icon.iconset/
