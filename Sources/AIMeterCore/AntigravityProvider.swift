@@ -110,6 +110,11 @@ public struct ProcessAntigravityLanguageServerProbe: AntigravityLanguageServerPr
 
 // MARK: - Remote OAuth (path 3)
 
+// ⚠️ Future provider note (Gemini CLI): Google stopped serving Gemini CLI OAuth
+// for consumer accounts on 2026-06-18. A future GeminiCliProvider must detect
+// the UNSUPPORTED_CLIENT / 403 SUBSCRIPTION_REQUIRED sentinels from
+// :loadCodeAssist and hand off to this Antigravity path.
+
 /// Antigravity's stored OAuth credential (from the `gemini`/`antigravity`
 /// keychain item or the legacy read-only token file).
 public struct AntigravityOAuthCredentials: Sendable, Equatable {

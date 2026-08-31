@@ -10,8 +10,11 @@ public struct RefresherState: Equatable, Sendable {
     public var providers: [ProviderInfo]
     public var results: [ProviderID: Result<UsageSnapshot, ProviderError>]
     public var enabled: [ProviderID: Bool]
+    /// Last successful fetch time per provider — survives a later failure so
+    /// the UI can show a stale-data notice with the last-success time.
+    public var lastSuccessAt: [ProviderID: Date]
 
-    public static let empty = RefresherState(providers: [], results: [:], enabled: [:])
+    public static let empty = RefresherState(providers: [], results: [:], enabled: [:], lastSuccessAt: [:])
 }
 
 public typealias ProviderResult = Result<UsageSnapshot, ProviderError>
@@ -31,6 +34,7 @@ public actor UsageRefresher {
 
     private var results: [ProviderID: ProviderResult] = [:]
     private var enabled: [ProviderID: Bool] = [:]
+    private var lastSuccessAt: [ProviderID: Date] = [:]
     private var failureAttempts: [ProviderID: Int] = [:]
     private var backoffUntil: [ProviderID: Date] = [:]
     private var loops: [ProviderID: Task<Void, Never>] = [:]
@@ -154,6 +158,7 @@ public actor UsageRefresher {
         do {
             let snapshot = try await provider.fetchUsage()
             results[id] = .success(snapshot)
+            lastSuccessAt[id] = snapshot.fetchedAt
             failureAttempts[id] = 0
             backoffUntil[id] = nil
             writeCache(id: id, snapshot: snapshot)
@@ -202,7 +207,8 @@ public actor UsageRefresher {
     public func currentState() -> RefresherState {
         RefresherState(providers: order.map { .init(id: $0, displayName: providers[$0]?.displayName ?? $0.rawValue) },
                        results: results,
-                       enabled: enabled)
+                       enabled: enabled,
+                       lastSuccessAt: lastSuccessAt)
     }
 
     private func publish() {
