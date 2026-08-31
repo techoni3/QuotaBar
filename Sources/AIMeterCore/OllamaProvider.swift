@@ -10,6 +10,10 @@ public struct OllamaProvider: AIProvider {
     public static let defaultBaseURL = URL(string: "http://localhost:11434")!
     /// Provider id used in Pi's credential file for the ollama.com cloud login.
     public static let cloudProviderID = "ollama"
+    /// Undocumented-but-stable Ollama Cloud usage endpoint (oh-my-pi#10101):
+    /// Bearer api_key → `limits.{session,weekly}.{usage 0..1, models}` shape
+    /// (verified live 2026-08-31).
+    public static let cloudUsageURL = URL(string: "https://ollama.com/api/usage")!
 
     public let id = ProviderID("ollama")
     public let displayName = "Ollama"
@@ -35,15 +39,16 @@ public struct OllamaProvider: AIProvider {
         // No public quota endpoint — surface the two windows that Pi's cloud
         // session normally reports, at 0% ("connected", never "Not connected").
         if let key = cloudAuth?.apiKey(for: Self.cloudProviderID), !key.isEmpty {
-            return UsageSnapshot(
-                planName: "Ollama Cloud — connected",
-                windows: [
-                    UsageWindow(kind: .session5h, usedPercent: 0, resetsAt: nil, label: "Cloud session (5h)"),
-                    UsageWindow(kind: .week7d, usedPercent: 0, resetsAt: nil, label: "Cloud weekly"),
-                ],
-                fetchedAt: Date(),
-                status: .ok
-            )
+            // Real cloud metrics from ollama.com/api/usage; network/non-2xx and
+            // JSON failures degrade to the keep-stable fallback so the row
+            // never drops from the HUD and never throws unauthorized.
+            let usage: OllamaCloudUsage
+            do {
+                usage = try await fetchCloudUsage(apiKey: key)
+            } catch {
+                return Self.cloudFallbackSnapshot()
+            }
+            return Self.cloudSnapshot(from: usage, fetchedAt: Date())
         }
         let models: [String]
         do {
@@ -63,6 +68,21 @@ public struct OllamaProvider: AIProvider {
             fetchedAt: Date(),
             status: .local
         )
+    }
+
+    private func fetchCloudUsage(apiKey: String) async throws -> OllamaCloudUsage {
+        var request = URLRequest(url: Self.cloudUsageURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let response = try await HTTPOps.send(request, session: session)
+        let data = try response.validated()
+        do {
+            return try JSONDecoder().decode(OllamaCloudUsage.self, from: data)
+        } catch {
+            throw ProviderError.unavailable("unexpected ollama.com usage payload")
+        }
     }
 
     private func loadedModels() async throws -> [String] {
