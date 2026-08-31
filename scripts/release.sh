@@ -34,20 +34,28 @@ echo "==> [2/6] assemble bundle (make-app.sh release)"
 AIMETER_SU_FEED_URL="$APPCAST_URL" scripts/make-app.sh release
 
 echo "==> [3/6] sign (identity: ${IDENTITY:-adhoc})"
+# Stage in /tmp and swap back: ~/Documents is iCloud file-provider synced and
+# re-stamps FinderInfo xattrs that codesign rejects (see scripts/sign-adhoc.sh).
+STAGE="$(mktemp -d /tmp/aimeter-sign.XXXXXX)"
+trap 'rm -rf "$STAGE"' EXIT
+cp -R "$APP" "$STAGE/AIMeter.app"
+xattr -cr "$STAGE/AIMeter.app"
 # Nested code first (Sparkle framework), then the app with entitlements.
-if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
-  if [[ -n "$IDENTITY" ]]; then
-    codesign --force --timestamp --options runtime --sign "$IDENTITY" "$APP/Contents/Frameworks/Sparkle.framework"
-  else
-    codesign --force -s - "$APP/Contents/Frameworks/Sparkle.framework"
-  fi
-fi
 if [[ -n "$IDENTITY" ]]; then
-  codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
+  if [[ -d "$STAGE/AIMeter.app/Contents/Frameworks/Sparkle.framework" ]]; then
+    codesign --force --timestamp --options runtime --sign "$IDENTITY" "$STAGE/AIMeter.app/Contents/Frameworks/Sparkle.framework"
+  fi
+  codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$STAGE/AIMeter.app"
 else
-  codesign --force --deep -s - "$APP"
+  if [[ -d "$STAGE/AIMeter.app/Contents/Frameworks/Sparkle.framework" ]]; then
+    codesign --force -s - "$STAGE/AIMeter.app/Contents/Frameworks/Sparkle.framework"
+  fi
+  codesign --force --deep -s - "$STAGE/AIMeter.app"
 fi
-codesign --verify --deep --strict "$APP" || { echo "signature verify failed"; exit 1; }
+codesign --verify --deep --strict "$STAGE/AIMeter.app" || { echo "signature verify failed"; exit 1; }
+rm -rf "$APP"
+mv "$STAGE/AIMeter.app" "$APP"
+rm -rf "$STAGE"
 
 echo "==> [4/6] notarize + staple (skipped when no identity/profile/tooling)"
 NOTARY="$(command -v xcrun && xcrun --find notarytool 2>/dev/null || true)"

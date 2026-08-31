@@ -83,7 +83,8 @@ touch "$APP/Contents/Resources/empty.lproj"
 install_name_tool -add_rpath @executable_path/../Frameworks \
   "$APP/Contents/MacOS/AIMeterApp" 2>/dev/null || true
 
-# Ad-hoc sign (development). Release builds use scripts/release.sh (Developer ID).
-codesign --force --deep -s - "$APP" 2>/dev/null
+# Ad-hoc sign via /tmp staging (the iCloud file provider re-stamps FinderInfo
+# inside ~/Documents, which codesign rejects). Release scripts re-sign later.
+scripts/sign-adhoc.sh "$APP"
 
 echo "Bundle created: $APP"
