@@ -8,19 +8,38 @@ import Foundation
 /// proves the daemon is up; the model names are surfaced as labels.
 public struct OllamaProvider: AIProvider {
     public static let defaultBaseURL = URL(string: "http://localhost:11434")!
+    /// Provider id used in Pi's credential file for the ollama.com cloud login.
+    public static let cloudProviderID = "ollama"
 
     public let id = ProviderID("ollama")
     public let displayName = "Ollama"
 
     private let baseURL: URL
     private let session: URLSession
+    private let cloudAuth: (any PiAuthReading)?
 
-    public init(baseURL: URL = OllamaProvider.defaultBaseURL, session: URLSession = .shared) {
+    /// - Parameter cloudAuth: optional Pi credential reader; when it yields an
+    ///   ollama key the row reports the cloud account instead of the local
+    ///   daemon (Pi's ollama key is API-key auth to ollama.com's cloud — no
+    ///   public quota endpoint, so we only surface "connected").
+    public init(baseURL: URL = OllamaProvider.defaultBaseURL,
+                session: URLSession = .shared,
+                cloudAuth: (any PiAuthReading)? = nil) {
         self.baseURL = baseURL
         self.session = session
+        self.cloudAuth = cloudAuth
     }
 
     public func fetchUsage() async throws -> UsageSnapshot {
+        // Pi OAuth'd cloud (ollama.com): the key proves the account is linked.
+        if let key = cloudAuth?.apiKey(for: Self.cloudProviderID), !key.isEmpty {
+            return UsageSnapshot(
+                planName: "Ollama Cloud — connected",
+                windows: [UsageWindow(kind: .credits, usedPercent: 0, resetsAt: nil, label: "Cloud (no quota endpoint)")],
+                fetchedAt: Date(),
+                status: .ok
+            )
+        }
         let models: [String]
         do {
             models = try await loadedModels()
