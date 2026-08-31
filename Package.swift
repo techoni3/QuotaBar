@@ -10,6 +10,8 @@ let package = Package(
         // swift-testing module isn't shipped with CommandLineTools — vendor it so
         // `swift test` works in a no-Xcode dev environment (CI still uses the system toolchain).
         .package(url: "https://github.com/swiftlang/swift-testing.git", from: "0.13.0"),
+        // Sparkle auto-update framework (binary SPM target; the only runtime dep).
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
     ],
     targets: [
         .target(
@@ -18,7 +20,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "AIMeterApp",
-            dependencies: ["AIMeterCore"],
+            dependencies: [
+                "AIMeterCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/AIMeterApp"
         ),
         .testTarget(

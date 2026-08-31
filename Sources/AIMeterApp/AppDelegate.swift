@@ -1,15 +1,24 @@
 import AIMeterCore
 import AppKit
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusItemController!
+    private var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let vault = KeychainCredentialVault()
         let refresher = UsageRefresher(providers: Self.makeProviders(vault: vault))
         Task { await refresher.start() }
-        statusController = StatusItemController(refresher: refresher, vault: vault)
+        // Sparkle auto-update (release builds point SUFeedURL at docs/appcast).
+        updaterController = SPUStandardUpdaterController(startingUpdater: true,
+                                                        updaterDelegate: nil,
+                                                        userDriverDelegate: nil)
+        statusController = StatusItemController(refresher: refresher, vault: vault,
+                                               onCheckForUpdates: { [weak self] in
+            self?.updaterController?.updater.checkForUpdates()
+        })
         statusController.install()
     }
 

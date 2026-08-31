@@ -13,13 +13,15 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private var settingsController: SettingsWindowController?
     private let viewModel: HUDViewModel
     private var tintTask: Task<Void, Never>?
+    private let onCheckForUpdates: (() -> Void)?
     /// Lazy: the closure captures self, so it cannot run before super.init.
     private lazy var hotkey = GlobalHotkeyController { [weak self] in
         self?.toggleHUD()
     }
 
-    init(refresher: UsageRefresher, vault: any CredentialVault) {
+    init(refresher: UsageRefresher, vault: any CredentialVault, onCheckForUpdates: (() -> Void)? = nil) {
         viewModel = HUDViewModel(refresher: refresher, vault: vault)
+        self.onCheckForUpdates = onCheckForUpdates
         super.init()
         tintTask = Task { [weak self] in
             for await state in refresher.updates {
@@ -72,6 +74,9 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.addItem(withTitle: "Show AIMeter", action: #selector(showHUD(_:)), keyEquivalent: "")
+        if onCheckForUpdates != nil {
+            menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         menu.addItem(.separator())
@@ -82,6 +87,10 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         // terminate: targets first responder — keep default target for it.
         menu.items.last?.target = nil
         statusItem.menu = menu
+    }
+
+    @objc private func checkForUpdates(_ sender: Any?) {
+        onCheckForUpdates?()
     }
 
     @objc private func statusItemClicked(_ sender: Any?) {
