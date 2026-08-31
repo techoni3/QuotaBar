@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let vault = KeychainCredentialVault()
         let refresher = UsageRefresher(providers: Self.makeProviders(vault: vault))
-        refresher.start()
+        Task { await refresher.start() }
         statusController = StatusItemController(refresher: refresher, vault: vault)
         statusController.install()
     }

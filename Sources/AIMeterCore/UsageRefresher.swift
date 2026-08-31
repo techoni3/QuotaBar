@@ -81,7 +81,7 @@ public actor UsageRefresher {
 
     // MARK: - Lifecycle
 
-    public func start() {
+    public func start() async {
         guard !started else { return }
         started = true
         if results.isEmpty {
@@ -181,7 +181,7 @@ public actor UsageRefresher {
 
     // MARK: - Enable/disable (persisted per provider)
 
-    public func setEnabled(_ id: ProviderID, _ isEnabled: Bool) {
+    public func setEnabled(_ id: ProviderID, _ isEnabled: Bool) async {
         enabled[id] = isEnabled
         defaults.set(isEnabled, forKey: Self.enabledKey(for: id))
         if !isEnabled {
@@ -192,7 +192,7 @@ public actor UsageRefresher {
                 await self?.runLoop(for: id)
             }
             // Refresh right away so an enabled provider doesn't wait a full interval.
-            Task { await self.refresh(id, respectingBackoff: false) }
+            await refresh(id, respectingBackoff: false)
         }
         publish()
     }
