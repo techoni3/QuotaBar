@@ -15,12 +15,13 @@ final class SettingsWindowController {
         onPlansChanged = plansChanged
         if window == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 440, height: 720),
-                styleMask: [.titled, .closable],
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 740),
+                styleMask: [.titled, .closable, .resizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "AIMeter Settings"
+            window.contentMinSize = NSSize(width: 560, height: 700)
             window.contentView = NSHostingView(rootView: SettingsView(hotkeyChanged: hotkeyChanged,
                                                                       plansChanged: plansChanged))
             window.center()
@@ -33,8 +34,9 @@ final class SettingsWindowController {
     }
 }
 
-/// Settings: polling, global hotkey recording, launch-at-login, per-provider
-/// credential info, and manual subscriptions.
+/// Settings with a tab layout (Polling / General / Providers / Manual) so the
+/// window stays resizable with a single scroll surface per tab (Audit fix:
+/// previously a Form inside a ScrollView with a fixed 440×720 frame).
 struct SettingsView: View {
     var hotkeyChanged: () -> Void = {}
     var onPlansChanged: () -> Void = {}
@@ -56,6 +58,7 @@ struct SettingsView: View {
     @State private var keyMonitor: Any?
     @State private var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @State private var launchError: String?
+    @State private var saveTask: Task<Void, Never>?
 
     private let store: any ManualPlanStore
 
@@ -73,107 +76,147 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            Form {
-                Section("Provider polling") {
-                    Stepper(value: $refreshInterval, in: 15...300, step: 5) {
-                        LabeledContent {
-                            Text("\(refreshInterval) s")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        } label: {
-                            Text("Refresh interval")
-                        }
-                    }
-                }
-                Section("Global hotkey") {
-                    LabeledContent("Summon HUD") {
-                        HStack(spacing: 10) {
-                            Text(currentHotkey.displayString)
-                                .font(.system(.body, design: .monospaced))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(.white.opacity(0.08))
-                                )
-                            Button(isRecordingHotkey ? "Press a chord…" : "Record…") {
-                                isRecordingHotkey ? stopRecordingHotkey() : startRecordingHotkey()
-                            }
-                            .controlSize(.small)
-                        }
-                    }
-                    if let hotkeyError {
-                        Text(hotkeyError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                    Text("Record a keyboard shortcut (e.g. ⌘⇧U). It works from any app without permission prompts.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Section("General") {
-                    Toggle("Launch at login", isOn: Binding(
-                        get: { launchAtLoginEnabled },
-                        set: { newValue in
-                            do {
-                                try LaunchAtLogin.setEnabled(newValue)
-                                launchAtLoginEnabled = LaunchAtLogin.isEnabled
-                                launchError = nil
-                            } catch {
-                                launchAtLoginEnabled = LaunchAtLogin.isEnabled
-                                launchError = (error as? LaunchAtLoginError)?.displayText
-                                    ?? error.localizedDescription
-                            }
-                        }
-                    ))
-                    if LaunchAtLogin.requiresApproval {
-                        Text("Approve AIMeter in System Settings → General → Login Items.")
-                            .font(.caption)
+        TabView {
+            pollingTab
+                .tabItem { Label("Polling", systemImage: "gauge") }
+            generalTab
+                .tabItem { Label("General", systemImage: "gearshape") }
+            providersTab
+                .tabItem { Label("Providers", systemImage: "sparkles") }
+            manualTab
+                .tabItem { Label("Manual", systemImage: "pencil") }
+        }
+        .padding(20)
+        .frame(minWidth: 560, minHeight: 700)
+        .onChange(of: plans) { _, newPlans in
+            debouncedSave(newPlans)
+        }
+        .onDisappear {
+            stopRecordingHotkey()
+            saveTask?.cancel()
+        }
+    }
+
+    // MARK: - Tabs
+
+    private var pollingTab: some View {
+        Form {
+            Section("Provider polling") {
+                Stepper(value: $refreshInterval, in: 15...300, step: 5) {
+                    LabeledContent {
+                        Text("\(refreshInterval) s")
+                            .monospacedDigit()
                             .foregroundStyle(.secondary)
-                    }
-                    if let launchError {
-                        Text(launchError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
+                    } label: {
+                        Text("Refresh interval")
                     }
                 }
-                Section("Providers") {
-                    Picker("Claude credentials", selection: $claudeCredentialMethod) {
-                        Text("Keychain (live)").tag(SettingsDefaults.credentialMethodKeychain)
-                        Text("Imported token").tag(SettingsDefaults.credentialMethodImport)
-                    }
-                    .pickerStyle(.segmented)
-                    LabeledContent("Codex") { Text("Reads ~/.codex/auth.json").foregroundStyle(.secondary) }
-                    LabeledContent("OpenCode") { Text("Reads ~/.local/share/opencode/auth.json").foregroundStyle(.secondary) }
-                    LabeledContent("Antigravity") { Text("App running → local service; else keychain").foregroundStyle(.secondary) }
-                    LabeledContent("Ollama") { Text("Local daemon — no subscription quota").foregroundStyle(.secondary) }
-                    Text("Enable or disable any provider from its HUD row; the choice persists.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Section("Manual subscriptions") {
-                    if plans.isEmpty {
-                        Text("No manual subscriptions yet — add one below.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach($plans) { $plan in
-                        manualPlanRow($plan)
-                    }
-                    addPlanSection
-                }
-            }
-            .padding(20)
-            .onChange(of: plans) {
-                store.savePlans(plans)
-                onPlansChanged()
-            }
-            .onDisappear {
-                stopRecordingHotkey()
+                Text("Quota windows refresh on this interval, when the HUD opens, and on the HUD refresh button.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 440, height: 720)
+    }
+
+    private var generalTab: some View {
+        Form {
+            Section("Global hotkey") {
+                LabeledContent("Summon HUD") {
+                    HStack(spacing: 10) {
+                        Text(currentHotkey.displayString)
+                            .font(.system(.body, design: .monospaced))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(.white.opacity(0.08))
+                            )
+                        Button(isRecordingHotkey ? "Press a chord…" : "Record…") {
+                            isRecordingHotkey ? stopRecordingHotkey() : startRecordingHotkey()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                if let hotkeyError {
+                    Text(hotkeyError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                Text("Record a keyboard shortcut (e.g. ⇧⌘U). It works from any app without permission prompts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Launch at login") {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { launchAtLoginEnabled },
+                    set: { newValue in
+                        do {
+                            try LaunchAtLogin.setEnabled(newValue)
+                            launchAtLoginEnabled = LaunchAtLogin.isEnabled
+                            launchError = nil
+                        } catch {
+                            launchAtLoginEnabled = LaunchAtLogin.isEnabled
+                            launchError = (error as? LaunchAtLoginError)?.displayText
+                                ?? error.localizedDescription
+                        }
+                    }
+                ))
+                if LaunchAtLogin.requiresApproval {
+                    Text("Approve AIMeter in System Settings → General → Login Items.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let launchError {
+                    Text(launchError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private var providersTab: some View {
+        Form {
+            Section("Claude credentials") {
+                Picker("Credentials", selection: $claudeCredentialMethod) {
+                    Text("Keychain (live)").tag(SettingsDefaults.credentialMethodKeychain)
+                    Text("Imported token").tag(SettingsDefaults.credentialMethodImport)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            Section("Data sources") {
+                LabeledContent("Claude") { Text("Keychain live / imported token").foregroundStyle(.secondary) }
+                LabeledContent("Codex") { Text("Reads ~/.codex/auth.json").foregroundStyle(.secondary) }
+                LabeledContent("OpenCode") { Text("Reads ~/.local/share/opencode/auth.json").foregroundStyle(.secondary) }
+                LabeledContent("Antigravity") { Text("App running → local service; else keychain").foregroundStyle(.secondary) }
+                LabeledContent("Ollama") { Text("Local daemon — no subscription quota").foregroundStyle(.secondary) }
+                LabeledContent("Manual") { Text("Static plans you add on the Manual tab").foregroundStyle(.secondary) }
+                Text("Enable or disable any provider from its HUD row; the choice persists.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var manualTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if plans.isEmpty {
+                    Text("No manual subscriptions yet — add one below.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach($plans) { $plan in
+                    ManualPlanRowView(plan: $plan) {
+                        plans.removeAll { $0.id == $plan.wrappedValue.id }
+                    }
+                }
+                Divider()
+                addPlanSection
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     // MARK: - Hotkey recording
@@ -229,52 +272,17 @@ struct SettingsView: View {
 
     // MARK: - Manual plans
 
-    private func manualPlanRow(_ plan: Binding<ManualPlan>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                TextField("Name", text: plan.name)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Plan", text: plan.planName.unwrapped(default: ""))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 110)
-                Button(role: .destructive) {
-                    plans.removeAll { $0.id == plan.wrappedValue.id }
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Delete \(plan.wrappedValue.name)")
-            }
-            HStack {
-                Stepper(value: plan.usedPercent, in: 0...100) {
-                    Text("\(plan.wrappedValue.usedPercent)% used")
-                        .monospacedDigit()
-                        .font(.callout)
-                }
-                Spacer()
-                Toggle("Resets", isOn: Binding(
-                    get: { plan.wrappedValue.resetsAt != nil },
-                    set: { on in
-                        if on {
-                            plan.wrappedValue.resetsAt = plan.wrappedValue.resetsAt ?? Date().addingTimeInterval(7 * 86_400)
-                        } else {
-                            plan.wrappedValue.resetsAt = nil
-                        }
-                    }
-                ))
-                .controlSize(.mini)
-                if plan.wrappedValue.resetsAt != nil {
-                    DatePicker("", selection: Binding(
-                        get: { plan.wrappedValue.resetsAt ?? Date() },
-                        set: { plan.wrappedValue.resetsAt = $0 }
-                    ), displayedComponents: [.date, .hourAndMinute])
-                    .labelsHidden()
-                    .controlSize(.mini)
-                    .frame(width: 150)
-                }
-            }
+    /// Debounced persist: typing in a row fires many onChange events; coalesce
+    /// them into one store write + one HUD refresh 400ms after the last edit.
+    private func debouncedSave(_ plans: [ManualPlan]) {
+        saveTask?.cancel()
+        let store = self.store
+        let notify = self.onPlansChanged
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            store.savePlans(plans)
+            notify()
         }
-        .padding(.vertical, 4)
     }
 
     private var addPlanSection: some View {
@@ -328,6 +336,58 @@ struct SettingsView: View {
     }
 }
 
+/// One editable manual-subscription row (shared by the Manual tab).
+private struct ManualPlanRowView: View {
+    let plan: Binding<ManualPlan>
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Name", text: plan.name)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Plan", text: plan.planName.unwrapped(default: ""))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 110)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Delete \(plan.wrappedValue.name)")
+            }
+            HStack {
+                Stepper(value: plan.usedPercent, in: 0...100) {
+                    Text("\(plan.wrappedValue.usedPercent)% used")
+                        .monospacedDigit()
+                        .font(.callout)
+                }
+                Spacer()
+                Toggle("Resets", isOn: Binding(
+                    get: { plan.wrappedValue.resetsAt != nil },
+                    set: { on in
+                        if on {
+                            plan.wrappedValue.resetsAt = plan.wrappedValue.resetsAt ?? Date().addingTimeInterval(7 * 86_400)
+                        } else {
+                            plan.wrappedValue.resetsAt = nil
+                        }
+                    }
+                ))
+                .controlSize(.mini)
+                if plan.wrappedValue.resetsAt != nil {
+                    DatePicker("", selection: Binding(
+                        get: { plan.wrappedValue.resetsAt ?? Date() },
+                        set: { plan.wrappedValue.resetsAt = $0 }
+                    ), displayedComponents: [.date, .hourAndMinute])
+                    .labelsHidden()
+                    .controlSize(.mini)
+                    .frame(width: 150)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 enum SettingsKeys {
     static let refreshIntervalSeconds = "refreshIntervalSeconds"
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -344,11 +404,15 @@ enum SettingsDefaults {
 }
 
 extension Binding where Value == String? {
-    /// Convenience binding for optional text fields (empty → nil).
+    /// Edits an optional string field, keeping exactly what the user typed
+    /// (including a lone "0"); clears to nil only when the field is emptied.
     func unwrapped(default defaultValue: String) -> Binding<String> {
         Binding<String>(
             get: { wrappedValue ?? defaultValue },
-            set: { wrappedValue = $0.isEmpty ? nil : $0 }
+            set: { newValue in
+                if newValue.isEmpty { wrappedValue = nil }
+                else { wrappedValue = newValue }
+            }
         )
     }
 }
