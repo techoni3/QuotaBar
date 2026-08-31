@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let vault = KeychainCredentialVault()
         let refresher = UsageRefresher(providers: Self.makeProviders(vault: vault))
         Task { await refresher.start() }
-        // Sparkle auto-update (release builds point SUFeedURL at docs/appcast).
+        // Sparkle auto-update (release builds point SUFeedURL at docs/aimeter-appcast.xml).
         updaterController = SPUStandardUpdaterController(startingUpdater: true,
                                                         updaterDelegate: nil,
                                                         userDriverDelegate: nil)
