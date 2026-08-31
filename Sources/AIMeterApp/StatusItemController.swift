@@ -10,9 +10,16 @@ final class StatusItemController: NSObject, NSWindowDelegate {
 
     func install() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "gauge.with.dial",
-                                           accessibilityDescription: "AIMeter")
-        statusItem.button?.image?.isTemplate = true
+        // "gauge.with.dial" does not exist in this OS's SF Symbols set — a nil
+        // image silently blanks the status item. Use "gauge" and never allow a
+        // nil symbol to leave the item invisible.
+        if let image = NSImage(systemSymbolName: "gauge", accessibilityDescription: "AIMeter") {
+            image.isTemplate = true
+            statusItem.button?.image = image
+        } else {
+            statusItem.button?.title = "AIM"
+            NSLog("AIMeter: 'gauge' symbol unavailable; falling back to text status item")
+        }
         rebuildMenu()
 
         // Left-click toggles the HUD directly; the menu stays on right-click.
