@@ -6,6 +6,7 @@ live server-calculated usage / quota windows for each, at a glance.
 
 - Menu bar anchored HUD panel + global hotkey ⌘⇧U
 - 60s background polling + refresh on open + manual refresh
+- Status: M1 skeleton in progress (this build: menu bar accessory, HUD panel, settings)
 - Keychain-first credentials (with one-time import as an alternative)
 - Distributed as a signed + notarized DMG via GitHub Releases (App Store variant later)
 
