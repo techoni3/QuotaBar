@@ -13,7 +13,7 @@ struct PiAuthTests {
         #expect(file.entries["ollama"]?.key == "sk-pi-ollama")
         #expect(file.entries["antigravity"]?.access == "ya29-pi-access")
         #expect(file.entries["antigravity"]?.refresh == "1//0-pi-refresh")
-        #expect(file.entries["antigravity"]?.expires == 1_788_066_531_500)
+        #expect(file.entries["antigravity"]?.expires == 6_942_000_000_000)
         // Non-object root values (the _comment) are skipped, not fatal.
         #expect(file.entries.count == 4)
     }
@@ -26,8 +26,26 @@ struct PiAuthTests {
         // OAuth entry: no api `key`, but an access token.
         #expect(source.apiKey(for: "antigravity") == nil)
         #expect(source.accessToken(for: "antigravity") == "ya29-pi-access")
+        #expect(source.refreshToken(for: "antigravity") == "1//0-pi-refresh")
+        // expires is Unix milliseconds → Date.
+        #expect(source.expiryDate(for: "antigravity") == Date(timeIntervalSince1970: 6_942_000_000))
         // Unknown provider → nil.
         #expect(source.apiKey(for: "nope") == nil)
+    }
+
+    @Test func piAntigravitySourceBuildsCredentialsFromOAuthEntry() throws {
+        let source = PiAntigravityTokenSource(auth: FilePiAuthSource(explicitPath: try Self.fixtureURL()))
+        let creds = try #require(source.credentials)
+        #expect(creds.accessToken == "ya29-pi-access")
+        #expect(creds.refreshToken == "1//0-pi-refresh")
+        #expect(creds.expiry == Date(timeIntervalSince1970: 6_942_000_000))
+    }
+
+    @Test func piAntigravitySourceIsNilWithoutCredential() {
+        let source = PiAntigravityTokenSource(auth: FilePiAuthSource(
+            explicitPath: URL(fileURLWithPath: "/nonexistent/pi/agent/auth.json"),
+            legacyExplicitPath: URL(fileURLWithPath: "/nonexistent/pi/auth.json")))
+        #expect(source.credentials == nil)
     }
 
     @Test func missingAgentFileFallsBackToLegacyPath() throws {

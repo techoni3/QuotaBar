@@ -327,6 +327,7 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
     private let localSession: URLSession
     private let probe: any AntigravityLanguageServerProbe
     private let keychainReader: any AntigravityKeychainReader
+    private let piAuth: (any PiAuthReading)?
     private let refresher: any AntigravityOAuthRefresher
     private let tokenCache = TokenCache()
 
@@ -334,11 +335,13 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
                 localSession: URLSession? = nil,
                 probe: any AntigravityLanguageServerProbe = ProcessAntigravityLanguageServerProbe(),
                 keychainReader: any AntigravityKeychainReader = KeychainAntigravityKeychainReader(),
+                piAuth: (any PiAuthReading)? = nil,
                 refresher: any AntigravityOAuthRefresher = GoogleAntigravityOAuthRefresher()) {
         self.session = session
         self.localSession = localSession ?? AntigravityLocalhostSession.make()
         self.probe = probe
         self.keychainReader = keychainReader
+        self.piAuth = piAuth
         self.refresher = refresher
     }
 
@@ -363,8 +366,17 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
         if let cached = await tokenCache.current() {
             return cached.accessToken
         }
-        guard let credentials = try await keychainReader.readCredentials() else {
-            throw ProviderError.unauthorized(detail: "no Antigravity keychain entry")
+        // Credential source order: Pi's stored OAuth (auto-connect when the
+        // app/CLI is closed) → keychain live-read (Decision 3).
+        var credentials: AntigravityOAuthCredentials?
+        if let piAuth {
+            credentials = PiAntigravityTokenSource(auth: piAuth).credentials
+        }
+        if credentials == nil {
+            credentials = try await keychainReader.readCredentials()
+        }
+        guard let credentials else {
+            throw ProviderError.unauthorized(detail: "no Antigravity credential (Pi or keychain)")
         }
         if let expiry = credentials.expiry,
            expiry <= Date().addingTimeInterval(60),

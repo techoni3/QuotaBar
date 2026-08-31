@@ -9,6 +9,10 @@ public protocol PiAuthReading: Sendable {
     func apiKey(for provider: String) -> String?
     /// OAuth access token (the `access` field of oauth entries, e.g. antigravity).
     func accessToken(for provider: String) -> String?
+    /// OAuth refresh token (the `refresh` field of oauth entries).
+    func refreshToken(for provider: String) -> String?
+    /// OAuth access token expiry (the `expires` field, Unix milliseconds).
+    func expiryDate(for provider: String) -> Date?
 }
 
 /// Decoded `~/.pi/agent/auth.json`: map of provider id → credential entry
@@ -76,6 +80,15 @@ public struct FilePiAuthSource: PiAuthReading {
         entry(for: provider).flatMap(\.access).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    public func refreshToken(for provider: String) -> String? {
+        entry(for: provider).flatMap(\.refresh).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    public func expiryDate(for provider: String) -> Date? {
+        guard let millis = entry(for: provider)?.expires, millis > 0 else { return nil }
+        return Date(timeIntervalSince1970: millis / 1000)
+    }
+
     private func entry(for provider: String) -> PiAuthFile.Entry? {
         load()?.entries[provider]
     }
@@ -88,6 +101,28 @@ public struct FilePiAuthSource: PiAuthReading {
             }
         }
         return nil
+    }
+}
+
+/// Antigravity OAuth credential from Pi's credential file (auto-connect for
+/// the remote path; injected between the local language-server probe and the
+/// keychain live-read in the provider's source order).
+public struct PiAntigravityTokenSource: Sendable {
+    public static let providerID = "antigravity"
+
+    private let auth: any PiAuthReading
+
+    public init(auth: any PiAuthReading) {
+        self.auth = auth
+    }
+
+    public var credentials: AntigravityOAuthCredentials? {
+        guard let access = auth.accessToken(for: Self.providerID), !access.isEmpty else { return nil }
+        return AntigravityOAuthCredentials(
+            accessToken: access,
+            expiry: auth.expiryDate(for: Self.providerID),
+            refreshToken: auth.refreshToken(for: Self.providerID)
+        )
     }
 }
 

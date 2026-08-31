@@ -53,7 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  PiOpenCodeTokenSource(auth: piAuth),
                                  VaultOpenCodeTokenSource(vault: vault, providerID: OpenCodeProvider.providerID),
                              ])),
-            AntigravityProvider(),
+            // Pi auto-connect: PiAntigravityTokenSource (inside the provider)
+            // supplies the remote-OAuth credential when ~/.pi has the oauth
+            // entry — probe (local LS) → Pi → keychain.
+            AntigravityProvider(piAuth: piAuth),
             // Cloud (Pi ollama key) → .ok "Ollama Cloud"; else local daemon.
             OllamaProvider(cloudAuth: piAuth),
             ManualProvider(),
