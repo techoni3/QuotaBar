@@ -1,0 +1,7 @@
+{
+  "_comment": "synthetic fixture based on the real ~/.pi/agent/auth.json schema (map provider -> {type, key, access, refresh, expires}); values are fake",
+  "opencode-go": { "type": "api", "key": "sk-pi-opencode-go" },
+  "opencode": { "type": "api", "key": "sk-pi-opencode" },
+  "ollama": { "type": "api", "key": "sk-pi-ollama" },
+  "antigravity": { "type": "oauth", "access": "ya29-pi-access", "refresh": "1//0-pi-refresh", "expires": 1788066531500 }
+}
