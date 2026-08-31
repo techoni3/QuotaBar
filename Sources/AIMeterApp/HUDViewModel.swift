@@ -30,6 +30,9 @@ struct ProviderRowState: Identifiable, Equatable {
 @MainActor
 final class HUDViewModel: ObservableObject {
     @Published private(set) var rows: [ProviderRowState] = []
+    /// Connected-only subset for the HUD: enabled providers whose latest fetch
+    /// succeeded with at least one usage window (`ok`/`local` + non-empty).
+    @Published private(set) var visibleRows: [ProviderRowState] = []
     @Published private(set) var worstTint: UsageTint = .green
     @Published private(set) var connectedCount = 0
 
@@ -158,6 +161,9 @@ final class HUDViewModel: ObservableObject {
             rows.append(row)
         }
         self.rows = rows
+        self.visibleRows = rows.filter { provider in
+            (provider.status == .ok || provider.status == .local) && !provider.windows.isEmpty
+        }
         self.worstTint = worst
         self.connectedCount = connected
     }

@@ -111,3 +111,15 @@ private struct StubOpenCodeTokenSource: OpenCodeTokenSource {
     init(_ token: String) { self.token = token }
     func accessToken() async throws -> String { token }
 }
+struct OpenCodeWindowOrderTests {
+    @Test func mapsAllThreeWindowsInOrder() async throws {
+        let stub = StubSession()
+        stub.respond { _ in .ok(try Fixtures.load("opencode-usage")) }
+        let provider = OpenCodeProvider(session: stub.session, tokenSource: StubOpenCodeTokenSource("k"))
+
+        let snapshot = try await provider.fetchUsage()
+
+        // rolling → 5h, weekly → 7d, monthly → month, in that order.
+        #expect(snapshot.windows.map(\.kind) == [.session5h, .week7d, .month])
+    }
+}

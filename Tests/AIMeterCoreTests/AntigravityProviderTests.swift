@@ -204,3 +204,99 @@ private final class StubRefresh: AntigravityOAuthRefresher, @unchecked Sendable 
         return result
     }
 }
+struct PiAntigravityWiringTests {
+    private static func piFixtureURL() -> URL {
+        Bundle.module.url(forResource: "pi-auth", withExtension: "json", subdirectory: "Fixtures")!
+    }
+
+    @Test func piOAuthConnectsRemotePathWithoutKeychain() async throws {
+        let stub = StubSession()
+        stub.respond { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ya29-pi-access")
+            return .ok(try Fixtures.load("antigravity-quota"))
+        }
+        // No local probe, no keychain — Pi's OAuth entry drives the remote path.
+        let provider = AntigravityProvider(session: stub.session, localSession: stub.session,
+                                           probe: StubLSProbe(nil),
+                                           keychainReader: StubKeychain(nil),
+                                           piAuth: FilePiAuthSource(explicitPath: Self.piFixtureURL()),
+                                           refresher: StubRefresh(RefreshedToken(accessToken: "x", refreshToken: nil)))
+
+        let snapshot = try await provider.fetchUsage()
+        #expect(snapshot.windows.count == 3)
+    }
+
+    @Test func stalePiTokenTriggersRefreshWithPiRefreshToken() async throws {
+        let stub = StubSession()
+        stub.respond { request in
+            if request.url?.absoluteString == "https://oauth2.googleapis.com/token" {
+                return .ok(Data(#"{"access_token": "pi-fresh", "expires_in": 3600}"#.utf8))
+            }
+            if request.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary" {
+                #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer pi-fresh")
+                return .ok(try Fixtures.load("antigravity-quota"))
+            }
+            return .init(status: 599, data: Data(), headers: [:])
+        }
+        // Synthesize a stale pi antigravity entry (expiry in the past).
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aimeter-pi-antigrav-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stale = dir.appendingPathComponent("auth.json")
+        let pastMillis = Int(Date().timeIntervalSince1970 * 1000) - 600_000
+        try Data("""
+        {"antigravity": {"type": "oauth", "access": "stale-pi", "refresh": "pi-refresh-1", "expires": \(pastMillis)}}
+        """.utf8).write(to: stale)
+
+        let refresher = StubRefresh(RefreshedToken(accessToken: "pi-fresh", refreshToken: nil))
+        let provider = AntigravityProvider(session: stub.session, localSession: stub.session,
+                                           probe: StubLSProbe(nil),
+                                           keychainReader: StubKeychain(nil),
+                                           piAuth: FilePiAuthSource(explicitPath: stale),
+                                           refresher: refresher)
+        _ = try await provider.fetchUsage()
+        #expect(refresher.calls == ["pi-refresh-1"])
+    }
+
+    @Test func keychainFallsBackWhenPiHasNoCredential() async throws {
+        let stub = StubSession()
+        stub.respond { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer keychain-token")
+            return .ok(try Fixtures.load("antigravity-quota"))
+        }
+        let emptyPi = FilePiAuthSource(
+            explicitPath: URL(fileURLWithPath: "/nonexistent/pi/agent/auth.json"),
+            legacyExplicitPath: URL(fileURLWithPath: "/nonexistent/pi/auth.json"))
+        let provider = AntigravityProvider(session: stub.session, localSession: stub.session,
+                                           probe: StubLSProbe(nil),
+                                           keychainReader: StubKeychain(AntigravityOAuthCredentials(
+                                               accessToken: "keychain-token", expiry: Date().addingTimeInterval(3600), refreshToken: nil)),
+                                           piAuth: emptyPi,
+                                           refresher: StubRefresh(RefreshedToken(accessToken: "x", refreshToken: nil)))
+        let snapshot = try await provider.fetchUsage()
+        #expect(snapshot.windows.count == 3)
+    }
+}
+
+struct AntigravityWindowOrderTests {
+    @Test func mapsBothPools5hThenWeekly() throws {
+        // Two pools × (5h + weekly) all enabled → 4 windows, 5h before weekly
+        // per pool, pool order preserved (Gemini models then Claude and GPT).
+        let payload = #"""
+        {"groups": [
+          {"displayName": "Gemini models", "buckets": [
+            {"bucketId": "g5h", "displayName": "5h", "remaining": {"remainingFraction": 0.3}, "disabled": false},
+            {"bucketId": "gwk", "displayName": "Weekly", "remaining": {"remainingFraction": 0.9}, "disabled": false}]},
+          {"displayName": "Claude and GPT models", "buckets": [
+            {"bucketId": "c5h", "displayName": "5h", "remaining": {"remainingFraction": 0.1}, "disabled": false},
+            {"bucketId": "cwk", "displayName": "Weekly", "remaining": {"remainingFraction": 0.7}, "disabled": false}]}
+        ]}
+        """#
+        let summary = try JSONDecoder.flexibleISO8601.decode(AntigravityQuotaSummary.self, from: Data(payload.utf8))
+        let snapshot = AntigravityProvider.snapshot(from: summary, planName: nil, fetchedAt: Date())
+
+        #expect(snapshot.windows.count == 4)
+        #expect(snapshot.windows.map(\.kind) == [.session5h, .week7d, .session5h, .week7d])
+        #expect(snapshot.windows.map(\.label) == ["Gemini models", "Gemini models", "Claude and GPT models", "Claude and GPT models"])
+    }
+}

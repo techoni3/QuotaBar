@@ -6,11 +6,13 @@ import SwiftUI
 @MainActor
 final class StatusItemController: NSObject, NSWindowDelegate {
     /// Fixed HUD width — the 2-column provider-card grid (see HUDRootView).
-    static let hudPanelWidth: CGFloat = 660
+    /// 740pt fits 5–7 providers on a typical screen without scrolling.
+    static let hudPanelWidth: CGFloat = 740
 
     private var statusItem: NSStatusItem!
     private var hudPanel: HUDPanel?
     private var settingsController: SettingsWindowController?
+    private var statusMenu: NSMenu?
     private let viewModel: HUDViewModel
     private var tintTask: Task<Void, Never>?
     private let onCheckForUpdates: (() -> Void)?
@@ -86,7 +88,10 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         }
         // terminate: targets first responder — keep default target for it.
         menu.items.last?.target = nil
-        statusItem.menu = menu
+        // NOTE: do NOT assign statusItem.menu — that makes macOS open the menu
+        // on left-click and swallows the button action (Lcan-click = HUD fix).
+        // The menu is kept only for the manual right-click/Ctrl popUp.
+        statusMenu = menu
     }
 
     @objc private func checkForUpdates(_ sender: Any?) {
@@ -98,7 +103,7 @@ final class StatusItemController: NSObject, NSWindowDelegate {
             toggleHUD()
             return
         }
-        statusItem.menu?.popUp(positioning: nil, at: NSPoint(x: 0, y: statusItem.button!.bounds.height), in: statusItem.button)
+        statusMenu?.popUp(positioning: nil, at: NSPoint(x: 0, y: statusItem.button!.bounds.height), in: statusItem.button)
     }
 
     @objc private func showHUD(_ sender: Any?) {
@@ -128,10 +133,12 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         let hosting = NSHostingView(rootView: HUDRootView(viewModel: viewModel))
         panel.contentView = hosting
         // Auto-size to the content: width is fixed by the 2-column card grid,
-        // height follows the fitted content (clamped so long lists scroll).
+        // height follows the fitted content (clamped to 80% of the screen so
+        // long lists scroll instead of overflowing).
         let fitting = hosting.fittingSize
+        let maxHeight = (NSScreen.main?.visibleFrame.height ?? 900) * 0.8
         let size = NSSize(width: Self.hudPanelWidth,
-                          height: min(max(fitting.height, 120), 720))
+                          height: min(max(fitting.height, 120), maxHeight))
         panel.setContentSize(size)
         return panel
     }

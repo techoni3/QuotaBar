@@ -32,10 +32,15 @@ public struct OllamaProvider: AIProvider {
 
     public func fetchUsage() async throws -> UsageSnapshot {
         // Pi OAuth'd cloud (ollama.com): the key proves the account is linked.
+        // No public quota endpoint — surface the two windows that Pi's cloud
+        // session normally reports, at 0% ("connected", never "Not connected").
         if let key = cloudAuth?.apiKey(for: Self.cloudProviderID), !key.isEmpty {
             return UsageSnapshot(
                 planName: "Ollama Cloud — connected",
-                windows: [UsageWindow(kind: .credits, usedPercent: 0, resetsAt: nil, label: "Cloud (no quota endpoint)")],
+                windows: [
+                    UsageWindow(kind: .session5h, usedPercent: 0, resetsAt: nil, label: "Cloud session (5h)"),
+                    UsageWindow(kind: .week7d, usedPercent: 0, resetsAt: nil, label: "Cloud weekly"),
+                ],
                 fetchedAt: Date(),
                 status: .ok
             )
