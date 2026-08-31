@@ -65,8 +65,10 @@ private struct ProviderCard: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 7, height: 7)
+                    .accessibilityHidden(true) // decorative; the label below conveys status
                 Text(row.name)
                     .font(.subheadline.weight(.semibold))
+                    .accessibilityLabel("\(row.name), \(statusVoiceOverText)")
                 if let plan = row.planName {
                     Text(plan)
                         .font(.caption)
@@ -82,6 +84,7 @@ private struct ProviderCard: View {
                 .buttonStyle(.borderless)
                 .disabled(!row.enabled)
                 .help("Refresh \(row.name)")
+                .accessibilityLabel("Refresh \(row.name)")
                 Toggle("", isOn: Binding(
                     get: { row.enabled },
                     set: { viewModel.setEnabled(row.id, $0) }
@@ -89,12 +92,33 @@ private struct ProviderCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
+                .accessibilityLabel("Enable \(row.name)")
             }
 
             if !row.enabled {
                 Text("Disabled")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+            } else if row.isKeychainDenied {
+                // Keychain ACL prompt denied → guide to the import fallback.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Keychain access was denied — import your token instead.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        if let detail = row.errorText {
+                            Text(detail)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                        Button("Connect…") {
+                            viewModel.connectSheetRow = row.id
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel("Connect \(row.name) by importing a token")
+                    }
+                }
             } else if row.status == .unauthorized {
                 HStack {
                     Text(row.errorText ?? "Not connected")
@@ -105,11 +129,19 @@ private struct ProviderCard: View {
                         viewModel.connectSheetRow = row.id
                     }
                     .controlSize(.small)
+                    .accessibilityLabel("Connect \(row.name)")
                 }
             } else if let error = row.errorText {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let last = row.lastSuccessAt {
+                        Text("Data from \(last.formatted(date: .abbreviated, time: .shortened)) is stale.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
             } else if !row.windows.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
                     ForEach(row.windows) { window in
@@ -143,6 +175,16 @@ private struct ProviderCard: View {
             set: { if !$0 { viewModel.connectSheetRow = nil } }
         )) {
             ConnectTokenSheet(providerID: row.id, providerName: row.name, viewModel: viewModel)
+        }
+    }
+
+    private var statusVoiceOverText: String {
+        switch row.status {
+        case .ok: return "connected"
+        case .unauthorized: return "not connected"
+        case .disabled: return "disabled"
+        case .unavailable: return "unavailable"
+        case .local: return "local"
         }
     }
 
@@ -193,6 +235,14 @@ private struct UsageBarView: View {
                 Spacer()
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// VoiceOver: “Session (5h): 27% used, resets in 3h 24m”.
+    private var accessibilityText: String {
+        let countdownText = countdown.map { ", \($0)" } ?? ""
+        return "\(title): \(percent)% used\(countdownText)"
     }
 }
 
@@ -213,6 +263,7 @@ private struct ConnectTokenSheet: View {
                 .foregroundStyle(.secondary)
             SecureField("Access token", text: $token)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Access token for \(providerName)")
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)

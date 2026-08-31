@@ -17,6 +17,11 @@ struct ProviderRowState: Identifiable, Equatable {
     var planName: String?
     var windows: [WindowVM]
     var fetchedAt: Date?
+    /// When the current state is a failure, the last successful fetch time
+    /// (survives the failure so the row can show stale-data notice).
+    var lastSuccessAt: Date?
+    /// The credential error came from a keychain ACL denial → guide to import.
+    var isKeychainDenied: Bool
     var errorText: String?
     var enabled: Bool
 }
@@ -76,6 +81,8 @@ final class HUDViewModel: ObservableObject {
         vault.deleteToken(for: id)
     }
 
+    private static let keychainDenyHints = ["keychain"]
+
     private func absorb(_ state: RefresherState) {
         var rows: [ProviderRowState] = []
         var worst = UsageTint.green
@@ -89,6 +96,8 @@ final class HUDViewModel: ObservableObject {
                 planName: nil,
                 windows: [],
                 fetchedAt: nil,
+                lastSuccessAt: state.lastSuccessAt[info.id],
+                isKeychainDenied: false,
                 errorText: nil,
                 enabled: isEnabled
             )
@@ -111,9 +120,16 @@ final class HUDViewModel: ObservableObject {
                     }
                 case .failure(let error):
                     row.errorText = error.displayText
+                    row.lastSuccessAt = state.lastSuccessAt[info.id]
                     switch error {
                     case .unauthorized:
                         row.status = .unauthorized
+                        // Keychain ACL denial/empty entry → steer to import.
+                        if case .unauthorized(let detail) = error,
+                           let detail, !Self.keychainDenyHints.isEmpty,
+                           Self.keychainDenyHints.contains(where: { detail.localizedCaseInsensitiveContains($0) }) {
+                            row.isKeychainDenied = true
+                        }
                     case .notInstalled:
                         row.status = .unavailable
                     default:
