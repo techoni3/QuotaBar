@@ -36,9 +36,8 @@ final class HUDViewModel: ObservableObject {
     @Published private(set) var worstTint: UsageTint = .green
     @Published private(set) var connectedCount = 0
 
-    /// Row (if any) whose Connect sheet is currently presented.
-    @Published var connectSheetRow: ProviderID?
-    /// A connect is in flight — drives the sheet's spinner and disabled button.
+    /// A connect is in flight — drives the Settings providers-tab spinner and
+    /// disabled Connect buttons.
     @Published private(set) var isConnecting = false
 
     private let refresher: UsageRefresher
@@ -77,8 +76,8 @@ final class HUDViewModel: ObservableObject {
 
     /// Stores a user-pasted token and immediately refreshes the provider.
     /// The keychain write runs off the main actor so a slow SecItemAdd never
-    /// blocks the UI (Audit fix — connect hang). Sheet dismissal is single:
-    /// only this method clears `connectSheetRow`.
+    /// blocks the UI; `isConnecting` disables double-taps. Connect/Disconnect
+    /// live in Settings → Providers; the HUD no longer presents a sheet.
     func connect(_ id: ProviderID, token: String) async throws {
         isConnecting = true
         defer { isConnecting = false }
@@ -87,12 +86,6 @@ final class HUDViewModel: ObservableObject {
             try vault.storeToken(token, for: id)
         }.value
         await refresher.refresh(id)
-        connectSheetRow = nil
-    }
-
-    /// Display name for the provider being connected (hoisted sheet).
-    func displayName(for id: ProviderID) -> String? {
-        rows.first { $0.id == id }?.name
     }
 
     func forget(_ id: ProviderID) {

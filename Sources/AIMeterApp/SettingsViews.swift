@@ -10,7 +10,9 @@ final class SettingsWindowController {
     private var onHotkeyChanged: (() -> Void)?
     private var onPlansChanged: (() -> Void)?
 
-    func show(hotkeyChanged: @escaping () -> Void, plansChanged: @escaping () -> Void) {
+    func show(viewModel: HUDViewModel,
+              hotkeyChanged: @escaping () -> Void,
+              plansChanged: @escaping () -> Void) {
         onHotkeyChanged = hotkeyChanged
         onPlansChanged = plansChanged
         if window == nil {
@@ -22,7 +24,8 @@ final class SettingsWindowController {
             )
             window.title = "AIMeter Settings"
             window.contentMinSize = NSSize(width: 560, height: 700)
-            window.contentView = NSHostingView(rootView: SettingsView(hotkeyChanged: hotkeyChanged,
+            window.contentView = NSHostingView(rootView: SettingsView(viewModel: viewModel,
+                                                                      hotkeyChanged: hotkeyChanged,
                                                                       plansChanged: plansChanged))
             window.center()
             window.isReleasedWhenClosed = false
@@ -38,6 +41,7 @@ final class SettingsWindowController {
 /// window stays resizable with a single scroll surface per tab (Audit fix:
 /// previously a Form inside a ScrollView with a fixed 440×720 frame).
 struct SettingsView: View {
+    @ObservedObject var viewModel: HUDViewModel
     var hotkeyChanged: () -> Void = {}
     var onPlansChanged: () -> Void = {}
 
@@ -54,6 +58,8 @@ struct SettingsView: View {
     @State private var draftResetDate = Date().addingTimeInterval(7 * 86_400)
 
     @State private var isRecordingHotkey = false
+    @State private var draftedTokens: [String: String] = [:]
+    @State private var connectError: String?
     @State private var hotkeyError: String?
     @State private var keyMonitor: Any?
     @State private var launchAtLoginEnabled = LaunchAtLogin.isEnabled
@@ -62,9 +68,11 @@ struct SettingsView: View {
 
     private let store: any ManualPlanStore
 
-    init(hotkeyChanged: @escaping () -> Void = {},
+    init(viewModel: HUDViewModel,
+         hotkeyChanged: @escaping () -> Void = {},
          plansChanged: @escaping () -> Void = {},
          store: any ManualPlanStore = UserDefaultsManualPlanStore()) {
+        self.viewModel = viewModel
         self.hotkeyChanged = hotkeyChanged
         self.onPlansChanged = plansChanged
         self.store = store
@@ -185,17 +193,104 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
-            Section("Data sources") {
-                LabeledContent("Claude") { Text("Keychain live / imported token").foregroundStyle(.secondary) }
-                LabeledContent("Codex") { Text("Reads ~/.codex/auth.json").foregroundStyle(.secondary) }
-                LabeledContent("OpenCode") { Text("Reads ~/.local/share/opencode/auth.json").foregroundStyle(.secondary) }
-                LabeledContent("Antigravity") { Text("App running → local service; else keychain").foregroundStyle(.secondary) }
-                LabeledContent("Ollama") { Text("Local daemon — no subscription quota").foregroundStyle(.secondary) }
-                LabeledContent("Manual") { Text("Static plans you add on the Manual tab").foregroundStyle(.secondary) }
-                Text("Enable or disable any provider from its HUD row; the choice persists.")
+            Section("Providers") {
+                ForEach(viewModel.rows) { row in
+                    providerRow(row)
+                }
+                if let connectError {
+                    Text(connectError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                Text("Import a token this provider already issued (Claude Code keychain, ~/.codex/auth.json, ~/.gemini/…, ~/.pi). Manual plans live on the Manual tab.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func providerRow(_ row: ProviderRowState) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor(row.status))
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
+                Text(row.name)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(statusText(row))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if row.enabled, row.status == .unauthorized || row.status == .unavailable {
+                HStack(spacing: 6) {
+                    SecureField("Token", text: tokenBinding(row.id))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(viewModel.isConnecting)
+                        .accessibilityLabel("\(row.name) token")
+                    Button(viewModel.isConnecting ? "…" : "Connect") {
+                        connect(row.id)
+                    }
+                    .disabled(viewModel.isConnecting || trimmedToken(row.id).isEmpty)
+                    .controlSize(.small)
+                    Button("Disconnect") {
+                        viewModel.forget(row.id)
+                        draftedTokens[row.id.rawValue] = nil
+                        viewModel.refresh(row.id)
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func tokenBinding(_ id: ProviderID) -> Binding<String> {
+        Binding(
+            get: { draftedTokens[id.rawValue] ?? "" },
+            set: { draftedTokens[id.rawValue] = $0 }
+        )
+    }
+
+    private func trimmedToken(_ id: ProviderID) -> String {
+        (draftedTokens[id.rawValue] ?? "").trimmingCharacters(in: .whitespaces)
+    }
+
+    private func connect(_ id: ProviderID) {
+        let token = trimmedToken(id)
+        connectError = nil
+        Task {
+            do {
+                try await viewModel.connect(id, token: token)
+                draftedTokens[id.rawValue] = nil
+            } catch {
+                connectError = "\(rowName(id)): couldn't store token (\(error))"
+            }
+        }
+    }
+
+    private func rowName(_ id: ProviderID) -> String {
+        viewModel.rows.first { $0.id == id }?.name ?? id.rawValue
+    }
+
+    private func statusText(_ row: ProviderRowState) -> String {
+        switch row.status {
+        case .ok: return "Connected"
+        case .local: return "Connected (local)"
+        case .unauthorized: return "Not connected"
+        case .unavailable: return "Unavailable"
+        case .disabled: return "Disabled"
+        }
+    }
+
+    private func statusColor(_ status: ProviderStatus) -> Color {
+        switch status {
+        case .ok, .local: return .green
+        case .unauthorized: return .orange
+        case .unavailable: return .red
+        case .disabled: return .gray
         }
     }
 

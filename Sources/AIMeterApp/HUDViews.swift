@@ -1,21 +1,9 @@
 import AIMeterCore
 import SwiftUI
 
-/// Identifiable wrapper for the hoisted single connect sheet.
-private struct ConnectTarget: Identifiable {
-    let id: ProviderID
-}
-
-/// Root content of the HUD panel: one card per provider.
+/// Root content of the HUD panel: one card per CONNECTED provider.
 struct HUDRootView: View {
     @ObservedObject var viewModel: HUDViewModel
-
-    private var connectTarget: Binding<ConnectTarget?> {
-        Binding(
-            get: { viewModel.connectSheetRow.map { ConnectTarget(id: $0) } },
-            set: { if $0 == nil { viewModel.connectSheetRow = nil } }
-        )
-    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -40,7 +28,7 @@ struct HUDRootView: View {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                               alignment: .leading,
                               spacing: 12) {
-                        ForEach(viewModel.rows) { row in
+                        ForEach(viewModel.visibleRows) { row in
                             ProviderCard(row: row,
                                          viewModel: viewModel)
                         }
@@ -51,13 +39,8 @@ struct HUDRootView: View {
         .padding(14)
         .frame(width: StatusItemController.hudPanelWidth)
         .background(HUDChrome())
-        // Single hoisted connect sheet (Audit fix: a per-card .sheet inside an
-        // NSPanel never attached; now the root presents exactly one sheet).
-        .sheet(item: connectTarget) { target in
-            ConnectTokenSheet(providerID: target.id,
-                              providerName: viewModel.displayName(for: target.id) ?? target.id.rawValue,
-                              viewModel: viewModel)
-        }
+        // Connect/Disconnect moved to Settings → Providers (PER-10); the HUD
+        // shows only connected rows and presents no modal sheets.
     }
 
     private var emptyState: some View {
@@ -67,7 +50,7 @@ struct HUDRootView: View {
                 .foregroundStyle(.secondary)
             Text("No providers connected yet")
                 .font(.headline)
-            Text("Connect Claude, Codex and others below.")
+            Text("Connect or disconnect providers in Settings.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -123,38 +106,6 @@ private struct ProviderCard: View {
                 Text("Disabled")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-            } else if row.isKeychainDenied {
-                // Keychain ACL prompt denied → guide to the import fallback.
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Keychain access was denied — import your token instead.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        if let detail = row.errorText {
-                            Text(detail)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        Spacer()
-                        Button("Connect…") {
-                            viewModel.connectSheetRow = row.id
-                        }
-                        .controlSize(.small)
-                        .accessibilityLabel("Connect \(row.name) by importing a token")
-                    }
-                }
-            } else if row.status == .unauthorized {
-                HStack {
-                    Text(row.errorText ?? "Not connected")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Connect…") {
-                        viewModel.connectSheetRow = row.id
-                    }
-                    .controlSize(.small)
-                    .accessibilityLabel("Connect \(row.name)")
-                }
             } else if let error = row.errorText {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(error)
@@ -296,70 +247,6 @@ private struct UsageBarView: View {
     private var accessibilityText: String {
         let countdownText = countdown.map { ", \($0)" } ?? ""
         return "\(title): \(percent)% used\(countdownText)"
-    }
-}
-
-private struct ConnectTokenSheet: View {
-    let providerID: ProviderID
-    let providerName: String
-    @ObservedObject var viewModel: HUDViewModel
-    @State private var token = ""
-    @State private var errorMessage: String?
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var tokenFocused: Bool
-
-    private var trimmedToken: String { token.trimmingCharacters(in: .whitespaces) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connect \(providerName)")
-                .font(.headline)
-            Text("Paste the access token to import. It is stored in your login Keychain and never leaves this Mac.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            SecureField("Access token", text: $token)
-                .textFieldStyle(.roundedBorder)
-                .focused($tokenFocused)
-                .disabled(viewModel.isConnecting)
-                .accessibilityLabel("Access token for \(providerName)")
-            if viewModel.isConnecting {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Connecting…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .disabled(viewModel.isConnecting)
-                Button("Connect") { connect() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(trimmedToken.isEmpty || viewModel.isConnecting)
-            }
-        }
-        .padding(18)
-        .frame(width: 320)
-        .onAppear { tokenFocused = true }
-    }
-
-    private func connect() {
-        Task {
-            do {
-                // Success closes via connectSheetRow = nil in the view model
-                // (single dismiss — no explicit dismiss() here).
-                try await viewModel.connect(providerID, token: trimmedToken)
-            } catch {
-                errorMessage = "Couldn't store token (\(error))"
-            }
-        }
     }
 }
 
