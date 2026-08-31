@@ -10,7 +10,7 @@ final class SettingsWindowController {
     func show() {
         if window == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 380, height: 220),
+                contentRect: NSRect(x: 0, y: 0, width: 380, height: 300),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -31,6 +31,7 @@ final class SettingsWindowController {
 struct SettingsView: View {
     @AppStorage(SettingsKeys.refreshIntervalSeconds) private var refreshInterval = SettingsDefaults.refreshIntervalSeconds
     @AppStorage(SettingsKeys.hotkeyDisplay) private var hotkeyDisplay = SettingsDefaults.hotkeyDisplay
+    @AppStorage(SettingsKeys.credentialMethod(for: "claude")) private var claudeCredentialMethod = SettingsDefaults.credentialMethodKeychain
 
     var body: some View {
         Form {
@@ -55,22 +56,34 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
             }
             Section("Providers") {
-                Text("Connect providers from the HUD panel (menu bar icon). Claude reads Claude Code's keychain entry; Codex reads ~/.codex/auth.json. Imported tokens live in AIMeter's own keychain item.")
-                    .font(.callout)
+                Picker("Claude credentials", selection: $claudeCredentialMethod) {
+                    Text("Keychain (live)").tag(SettingsDefaults.credentialMethodKeychain)
+                    Text("Imported token").tag(SettingsDefaults.credentialMethodImport)
+                }
+                .pickerStyle(.segmented)
+                LabeledContent("Codex") {
+                    Text("Reads ~/.codex/auth.json")
+                        .foregroundStyle(.secondary)
+                }
+                Text("Keychain (live) reads Claude Code's own keychain entry (system prompt on first launch); imported tokens live in AIMeter's own keychain item. Codex always reads its CLI auth file.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(20)
-        .frame(width: 380, height: 240)
+        .frame(width: 380, height: 300)
     }
 }
 
 enum SettingsKeys {
     static let refreshIntervalSeconds = "refreshIntervalSeconds"
     static let hotkeyDisplay = "hotkeyDisplay"
+    static func credentialMethod(for provider: String) -> String { "credentialMethod.\(provider)" }
 }
 
 enum SettingsDefaults {
     static let refreshIntervalSeconds = 60
     static let hotkeyDisplay = "⌘⇧U"
+    static let credentialMethodKeychain = "keychain"
+    static let credentialMethodImport = "import"
 }

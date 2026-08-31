@@ -14,12 +14,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Wires the credential sources per spec Decision 3: keychain live-read
-    /// preferred, explicit import as fallback.
+    /// preferred by default, explicit import/paste when the user picks it in
+    /// Settings. The choice is persisted per provider.
     static func makeProviders(vault: any CredentialVault) -> [any AIProvider] {
-        let claudeTokens = CompositeClaudeTokenSource([
-            LiveKeychainClaudeTokenSource(),
-            VaultClaudeTokenSource(vault: vault, providerID: ClaudeProvider.providerID),
-        ])
+        let claudeMethod = UserDefaults.standard.string(forKey: SettingsKeys.credentialMethod(for: "claude"))
+            ?? SettingsDefaults.credentialMethodKeychain
+        let claudeTokens: any ClaudeTokenSource
+        if claudeMethod == SettingsDefaults.credentialMethodImport {
+            claudeTokens = VaultClaudeTokenSource(vault: vault, providerID: ClaudeProvider.providerID)
+        } else {
+            claudeTokens = CompositeClaudeTokenSource([
+                LiveKeychainClaudeTokenSource(),
+                VaultClaudeTokenSource(vault: vault, providerID: ClaudeProvider.providerID),
+            ])
+        }
         return [
             ClaudeProvider(session: .shared, tokenSource: claudeTokens),
             CodexProvider(session: .shared),
