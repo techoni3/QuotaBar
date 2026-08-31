@@ -10,21 +10,27 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private var settingsController: SettingsWindowController?
     private let viewModel: HUDViewModel
     private var tintTask: Task<Void, Never>?
+    /// Lazy: the closure captures self, so it cannot run before super.init.
+    private lazy var hotkey = GlobalHotkeyController { [weak self] in
+        self?.toggleHUD()
+    }
 
     init(refresher: UsageRefresher, vault: any CredentialVault) {
         viewModel = HUDViewModel(refresher: refresher, vault: vault)
         super.init()
         tintTask = Task { [weak self] in
             for await state in refresher.updates {
-                let worst = state.results.values.compactMap { try? $0.get() }
-                    .map(\.worstTint).max { $0.severityRank < $1.severityRank } ?? .green
-                self?.applyTint(worst)
+                self?.applyIconState(StatusItemState.derive(from: state))
             }
         }
     }
 
-    private func applyTint(_ tint: UsageTint) {
-        statusItem?.button?.contentTintColor = tint.color
+    /// Aggregate menu-bar icon state (normal/warning/stale/critical) from the
+    /// refresher's latest publish; updates on every tick.
+    private func applyIconState(_ iconState: StatusItemState) {
+        guard let button = statusItem?.button else { return }
+        button.contentTintColor = iconState.statusItemColor
+        button.setAccessibilityLabel(iconState.statusItemAccessibilityLabel)
     }
 
     func install() {
@@ -40,11 +46,24 @@ final class StatusItemController: NSObject, NSWindowDelegate {
             NSLog("AIMeter: 'gauge' symbol unavailable; falling back to text status item")
         }
         rebuildMenu()
+        registerGlobalHotkey()
 
         // Left-click toggles the HUD directly; the menu stays on right-click.
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem.button?.action = #selector(statusItemClicked(_:))
         statusItem.button?.target = self
+    }
+
+    /// Registers the user-configured hotkey (spec Decision 6, default ⌘⇧U).
+    private func registerGlobalHotkey() {
+        hotkey.register(currentHotkeyChord())
+    }
+
+    private func currentHotkeyChord() -> HotkeyChord {
+        let defaults = UserDefaults.standard
+        let keyCode = defaults.object(forKey: SettingsKeys.hotkeyKeyCode) as? Int ?? SettingsDefaults.hotkeyKeyCode
+        let modifiers = defaults.object(forKey: SettingsKeys.hotkeyModifiers) as? Int ?? SettingsDefaults.hotkeyModifiers
+        return HotkeyChord(keyCode: UInt32(keyCode), modifiers: UInt32(modifiers))
     }
 
     private func rebuildMenu() {
@@ -122,8 +141,10 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         if settingsController == nil {
             settingsController = SettingsWindowController()
         }
-        // Manual plan edits should surface in the HUD immediately.
-        settingsController?.show(onPlansChanged: { [weak self] in
+        // Hotkey + manual-plan edits should apply immediately.
+        settingsController?.show(hotkeyChanged: { [weak self] in
+            self?.hotkey.register(self?.currentHotkeyChord() ?? .defaults)
+        }, plansChanged: { [weak self] in
             self?.viewModel.refresh(ProviderID("manual"))
         })
     }
