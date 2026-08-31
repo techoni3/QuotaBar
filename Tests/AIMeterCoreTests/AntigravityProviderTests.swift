@@ -300,3 +300,63 @@ struct AntigravityWindowOrderTests {
         #expect(snapshot.windows.map(\.label) == ["Gemini models", "Gemini models", "Claude and GPT models", "Claude and GPT models"])
     }
 }
+
+struct AntigravityLegacyShapeTests {
+    @Test func decodesNestedRemainingFallback() throws {
+        // Older doc shape: remainingFraction nested under `remaining`.
+        let payload = #"""
+        {"groups": [{"displayName": "Gemini models", "buckets": [
+          {"bucketId": "g5h", "displayName": "5h", "remaining": {"remainingFraction": 0.25}, "resetTime": "2030-01-01T00:00:00Z"}]}]}
+        """#
+        let summary = try JSONDecoder.flexibleISO8601.decode(AntigravityQuotaSummary.self, from: Data(payload.utf8))
+        let snapshot = AntigravityProvider.snapshot(from: summary, planName: nil, fetchedAt: Date())
+        #expect(snapshot.windows.map(\.usedPercent) == [75]) // 1 − 0.25
+    }
+}
+
+struct AntigravityTimeoutTests {
+    @Test func withTimeoutAbortsStalledStep() async {
+        let start = Date()
+        do {
+            _ = try await AntigravityProvider.withTimeout(0.3) {
+                try await Task.sleep(for: .seconds(5))
+                return 1
+            }
+            Issue.record("expected timeout")
+        } catch let error as ProviderError {
+            #expect(Date().timeIntervalSince(start) < 3) // bounded, not 5s
+            #expect(error.isRetryable)
+        } catch {
+            Issue.record("unexpected error \(error)")
+        }
+    }
+
+    @Test func withTimeoutCompletesFastOps() async throws {
+        let value = try await AntigravityProvider.withTimeout(2) { 42 }
+        #expect(value == 42)
+    }
+
+    @Test func boundedLocalLsFallsBackToRemoteOnFailure() async throws {
+        let stub = StubSession()
+        stub.respond { request in
+            // Pi remote path is reachable; local LS (probe stub) returns a
+            // failing/hanging 127.0.0.1 target → 599 via the stub → fallback.
+            if request.url?.absoluteString.contains("127.0.0.1") == true {
+                return .init(status: 599, data: Data(), headers: [:])
+            }
+            #expect(request.url?.absoluteString.contains("daily-cloudcode-pa") == true)
+            return .ok(try Fixtures.load("antigravity-quota"))
+        }
+        let provider = AntigravityProvider(session: stub.session, localSession: stub.session,
+                                           probe: StubLSProbe(AntigravityLanguageServer(port: 1, csrfToken: nil)),
+                                           keychainReader: StubKeychain(nil),
+                                           piAuth: FilePiAuthSource(explicitPath: Self.piFixtureURL()),
+                                           refresher: StubRefresh(RefreshedToken(accessToken: "x", refreshToken: nil)))
+        let snapshot = try await provider.fetchUsage()
+        #expect(snapshot.windows.count == 3)
+    }
+
+    private static func piFixtureURL() -> URL {
+        Bundle.module.url(forResource: "pi-auth", withExtension: "json", subdirectory: "Fixtures")!
+    }
+}

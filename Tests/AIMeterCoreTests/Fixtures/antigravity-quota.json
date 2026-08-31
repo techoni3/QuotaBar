@@ -1,14 +1,14 @@
 {
-  "_comment": "synthetic fixture based on openusage/CodexBar RetrieveUserQuotaSummary (two pools: Gemini models / Claude and GPT models; 5h + weekly buckets with remainingFraction)",
   "planName": "Antigravity Pro",
+  "_comment": "fixture matching the LIVE daily-cloudcode-pa retrieveUserQuotaSummary response (buckets carry remainingFraction flat + a window tag — verified 2026-08-31)",
   "groups": [
-    { "displayName": "Gemini models", "disabled": false, "buckets": [
-      { "bucketId": "genai_5h", "displayName": "5h", "remaining": { "remainingFraction": 0.27 }, "resetTime": "2030-01-01T14:00:00.000Z", "disabled": false },
-      { "bucketId": "genai_week", "displayName": "Weekly", "remaining": { "remainingFraction": 0.91 }, "resetTime": "2030-01-06T00:00:00.000Z", "disabled": false }
+    { "displayName": "Gemini models", "description": "…", "buckets": [
+      { "bucketId": "genai_5h", "displayName": "5h", "window": "5h", "remainingFraction": 0.27, "resetTime": "2030-01-01T14:00:00.000Z", "disabled": false },
+      { "bucketId": "genai_week", "displayName": "Weekly", "window": "week", "remainingFraction": 0.91, "resetTime": "2030-01-06T00:00:00.000Z", "disabled": false }
     ]},
-    { "displayName": "Claude and GPT models", "disabled": false, "buckets": [
-      { "bucketId": "oai_5h", "displayName": "5h", "remaining": { "remainingFraction": 0.05 }, "resetTime": "2030-01-01T15:00:00.000Z", "disabled": false },
-      { "bucketId": "oai_week", "displayName": "week", "remaining": { "remainingFraction": 0.5 }, "resetTime": "2030-01-06T01:00:00.000Z", "disabled": true }
+    { "displayName": "Claude and GPT models", "description": "…", "buckets": [
+      { "bucketId": "oai_5h", "displayName": "5h", "window": "5h", "remainingFraction": 0.05, "resetTime": "2030-01-01T15:00:00.000Z", "disabled": false },
+      { "bucketId": "oai_week", "displayName": "week", "window": "week", "remainingFraction": 0.5, "resetTime": "2030-01-06T01:00:00.000Z", "disabled": true }
     ]}
   ]
 }

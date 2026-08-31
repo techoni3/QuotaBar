@@ -14,12 +14,12 @@ struct OpenCodeProviderTests {
         #expect(snapshot.planName == "OpenCode Go")
         #expect(snapshot.windows.count == 3)
         let session = snapshot.windows.first { $0.kind == .session5h }
-        #expect(session?.usedPercent == 28) // 27.5 rounds to 28
+        #expect(session?.usedPercent == 13)
         #expect(session?.resetsAt != nil)
         let week = snapshot.windows.first { $0.kind == .week7d }
-        #expect(week?.usedPercent == 12)
+        #expect(week?.usedPercent == 66)
         let month = snapshot.windows.first { $0.kind == .month }
-        #expect(month?.usedPercent == 64) // 63.9 rounds to 64
+        #expect(month?.usedPercent == 83)
     }
 
     @Test func sendsBearerToUsageURL() async throws {
@@ -121,5 +121,20 @@ struct OpenCodeWindowOrderTests {
 
         // rolling → 5h, weekly → 7d, monthly → month, in that order.
         #expect(snapshot.windows.map(\.kind) == [.session5h, .week7d, .month])
+    }
+}
+
+struct OpenCodeLegacyShapeTests {
+    @Test func decodesLegacyRollingUsageShape() async throws {
+        let stub = StubSession()
+        stub.respond { _ in
+            .ok(Data(#"{"usage": {"rollingUsage": {"usagePercent": 42, "resetInSec": 18000}}}"#.utf8))
+        }
+        let provider = OpenCodeProvider(session: stub.session, tokenSource: StubOpenCodeTokenSource("k"))
+        let snapshot = try await provider.fetchUsage()
+        #expect(snapshot.windows.count == 1)
+        #expect(snapshot.windows.first?.kind == .session5h)
+        #expect(snapshot.windows.first?.usedPercent == 42)
+        #expect(snapshot.windows.first?.resetsAt != nil)
     }
 }

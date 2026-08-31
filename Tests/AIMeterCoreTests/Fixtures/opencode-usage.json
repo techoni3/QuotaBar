@@ -1,8 +1,8 @@
 {
-  "_comment": "synthetic fixture based on CodexBar/openusage OpenCode Go usage API response shape",
+  "_comment": "fixture matching the LIVE opencode.ai/zen/go/v1/usage response (usage.{rolling,weekly,monthly}.{status,percent,resetsAt} — verified 2026-08-31)",
   "usage": {
-    "rollingUsage": { "usagePercent": 27.5, "resetInSec": 18000 },
-    "weeklyUsage": { "usagePercent": 12.4, "resetInSec": 604800 },
-    "monthlyUsage": { "usagePercent": 63.9, "resetInSec": 2592000 }
+    "rolling": { "status": "ok", "percent": 13, "resetsAt": "2030-01-01T14:00:00.000Z" },
+    "weekly": { "status": "ok", "percent": 66, "resetsAt": "2030-01-06T00:00:00.000Z" },
+    "monthly": { "status": "ok", "percent": 83, "resetsAt": "2030-01-26T17:41:00.000Z" }
   }
 }
