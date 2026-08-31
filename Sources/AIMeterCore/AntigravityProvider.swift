@@ -97,14 +97,18 @@ public struct ProcessAntigravityLanguageServerProbe: AntigravityLanguageServerPr
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
-        let out = Pipe(); let err = Pipe()
+        let out = Pipe()
         process.standardOutput = out
-        process.standardError = err
+        // Never hold a pipe for stderr: drain stdout BEFORE waitUntilExit —
+        // waiting first deadlocks once the child fills the 64KB pipe buffer
+        // (`ps -ax` output routinely exceeds it on busy machines).
+        process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
+        let output = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
-        return String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        return String(data: output, encoding: .utf8)
     }
 }
 
@@ -263,20 +267,49 @@ public struct GoogleAntigravityOAuthRefresher: AntigravityOAuthRefresher {
 /// pools (e.g. "Gemini models", "Claude and GPT models"); buckets are the
 /// 5-hour and weekly windows. Tolerates groups at the root or under
 /// `response` / `summary` wrappers.
-public struct AntigravityQuotaSummary: Decodable, Equatable {
-    public struct Group: Decodable, Equatable {
+public struct AntigravityQuotaSummary: Decodable, Equatable, Sendable {
+    public struct Group: Decodable, Equatable, Sendable {
         public let displayName: String?
         public let buckets: [Bucket]?
         public let disabled: Bool?
     }
-    public struct Bucket: Decodable, Equatable {
+    public struct Bucket: Decodable, Equatable, Sendable {
         public let bucketId: String?
         public let displayName: String?
+        /// Live API (verified 2026-08-31) puts `remainingFraction` DIRECTLY on
+        /// the bucket (`{bucketId, displayName, window, remainingFraction,
+        /// resetTime, description}`); the older doc shape nests it under
+        /// `remaining`. Both decode; the flat value wins.
+        public let remainingFraction: Double?
         public let remaining: Remaining?
+        /// Window kind tag used live (`"5h"` / `"week"`).
+        public let window: String?
         public let resetTime: Date?
         public let disabled: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case bucketId, displayName, remainingFraction, remaining, window, resetTime, disabled
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            bucketId = try c.decodeIfPresent(String.self, forKey: .bucketId)
+            displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+            // Flat first, nested fallback.
+            if let flat = try c.decodeIfPresent(Double.self, forKey: .remainingFraction) {
+                remainingFraction = flat
+            } else if let nested = try c.decodeIfPresent(Remaining.self, forKey: .remaining) {
+                remainingFraction = nested.remainingFraction
+            } else {
+                remainingFraction = nil
+            }
+            remaining = try c.decodeIfPresent(Remaining.self, forKey: .remaining)
+            window = try c.decodeIfPresent(String.self, forKey: .window)
+            resetTime = try c.decodeIfPresent(Date.self, forKey: .resetTime)
+            disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled)
+        }
     }
-    public struct Remaining: Decodable, Equatable {
+    public struct Remaining: Decodable, Equatable, Sendable {
         public let remainingFraction: Double?
     }
 
@@ -323,6 +356,23 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
         func store(_ refreshed: RefreshedToken) { token = refreshed }
     }
 
+    /// Bounds a step (e.g. the local language-server probe) with a hard
+    /// deadline so a stalled 127.0.0.1 service can't hang the HUD refresh on
+    /// URLSession's 60s default. The loser task is cancelled.
+    static func withTimeout<T: Sendable>(_ seconds: TimeInterval,
+                               _ op: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await op() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw ProviderError.unavailable("Antigravity step timed out")
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
     private let session: URLSession
     private let localSession: URLSession
     private let probe: any AntigravityLanguageServerProbe
@@ -347,13 +397,17 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
 
     public func fetchUsage() async throws -> UsageSnapshot {
         // Path 1: local language server while the app is running (richest).
+        // Bounded: a stalled 127.0.0.1 service must not hang the poll — on
+        // timeout we fall through to the remote OAuth path.
         if let ls = await probe.locateLanguageServer() {
             do {
-                let summary = try await quotaFromLanguageServer(ls)
+                let summary = try await Self.withTimeout(8) {
+                    try await self.quotaFromLanguageServer(ls)
+                }
                 return Self.snapshot(from: summary, planName: summary.planName, fetchedAt: Date())
             } catch {
-                // Local service is up but the call failed → fall through to the
-                // remote OAuth path (degrades gracefully).
+                // Local service is up but the call failed/timed out → fall
+                // through to the remote OAuth path (degrades gracefully).
             }
         }
         // Path 3: remote OAuth with Antigravity's stored credential.
@@ -433,14 +487,15 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
         var windows: [UsageWindow] = []
         for group in summary.groups ?? [] where group.disabled != true {
             for bucket in group.buckets ?? [] where bucket.disabled != true {
-                guard let fraction = bucket.remaining?.remainingFraction else { continue }
+                guard let fraction = bucket.remainingFraction else { continue }
                 let used = Self.clampedPercent((1 - fraction) * 100)
                 let id = (bucket.bucketId ?? "").lowercased()
                 let name = (bucket.displayName ?? "").lowercased()
+                let tag = (bucket.window ?? "").lowercased()
                 let kind: WindowKind
-                if id.contains("5h") || name.contains("5h") || name.contains("session") {
+                if id.contains("5h") || name.contains("5h") || name.contains("session") || tag.contains("5h") {
                     kind = .session5h
-                } else if id.contains("week") || name.contains("week") {
+                } else if id.contains("week") || name.contains("week") || tag.contains("week") {
                     kind = .week7d
                 } else {
                     kind = .week7d // unknown bucket labels default to weekly
@@ -491,6 +546,8 @@ final class LocalhostTrustDelegate: NSObject, URLSessionDelegate {
 enum AntigravityLocalhostSession {
     static func make() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 30
         return URLSession(configuration: configuration, delegate: LocalhostTrustDelegate(), delegateQueue: nil)
     }
 }

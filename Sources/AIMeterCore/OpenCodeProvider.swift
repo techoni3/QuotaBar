@@ -155,7 +155,7 @@ public struct OpenCodeProvider: AIProvider {
         let response = try await HTTPOps.send(request, session: session)
         let data = try response.validated()
         do {
-            let decoded = try JSONDecoder().decode(OpenCodeUsageResponse.self, from: data)
+            let decoded = try JSONDecoder.flexibleISO8601.decode(OpenCodeUsageResponse.self, from: data)
             return decoded.snapshot()
         } catch {
             throw ProviderError.unavailable("unexpected OpenCode usage payload")
@@ -164,37 +164,69 @@ public struct OpenCodeProvider: AIProvider {
 }
 
 struct OpenCodeUsageResponse: Decodable {
+    /// One usage window. Live API shape (verified 2026-08-31):
+    /// `{ "status": "ok", "percent": 0..100, "resetsAt": "<ISO8601>" }` under
+    /// `usage.{rolling,weekly,monthly}`. Legacy doc shape
+    /// `{ "usagePercent": …, "resetInSec": … }` under `usage.rollingUsage/…`
+    /// is still accepted.
     struct Window: Decodable {
-        let usagePercent: Double
+        let status: String?
+        let percent: Double?
+        let resetsAt: Date?
+        let usagePercent: Double?
         let resetInSec: Int?
 
         enum CodingKeys: String, CodingKey {
+            case status, percent, resetsAt
             case usagePercent = "usagePercent"
             case resetInSec = "resetInSec"
         }
+
+        var effectivePercent: Double? { percent ?? usagePercent }
+        var effectiveResetsAt: Date? { resetsAt }
     }
 
-    struct Usage: Decodable {
+    struct UsageBox: Decodable {
+        let rolling: Window?
+        let weekly: Window?
+        let monthly: Window?
         let rollingUsage: Window?
         let weeklyUsage: Window?
         let monthlyUsage: Window?
+
+        enum CodingKeys: String, CodingKey {
+            case rolling, weekly, monthly
+            case rollingUsage = "rollingUsage"
+            case weeklyUsage = "weeklyUsage"
+            case monthlyUsage = "monthlyUsage"
+        }
+
+        func window(for kind: WindowKind) -> Window? {
+            switch kind {
+            case .session5h: return rolling ?? rollingUsage
+            case .week7d: return weekly ?? weeklyUsage
+            case .month: return monthly ?? monthlyUsage
+            case .credits: return nil
+            }
+        }
     }
 
-    let usage: Usage?
+    let usage: UsageBox?
 
     func snapshot(now: Date = Date()) -> UsageSnapshot {
         var windows: [UsageWindow] = []
         func append(_ window: Window?, _ kind: WindowKind) {
-            guard let window else { return }
+            guard let window, let percent = window.effectivePercent else { return }
             windows.append(UsageWindow(
                 kind: kind,
-                usedPercent: Self.clampedPercent(window.usagePercent),
-                resetsAt: window.resetInSec.map { now.addingTimeInterval(TimeInterval($0)) }
+                usedPercent: Self.clampedPercent(percent),
+                resetsAt: window.effectiveResetsAt
+                    ?? window.resetInSec.map { now.addingTimeInterval(TimeInterval($0)) }
             ))
         }
-        append(usage?.rollingUsage, .session5h)
-        append(usage?.weeklyUsage, .week7d)
-        append(usage?.monthlyUsage, .month)
+        append(usage?.window(for: .session5h), .session5h)
+        append(usage?.window(for: .week7d), .week7d)
+        append(usage?.window(for: .month), .month)
         return UsageSnapshot(planName: "OpenCode Go", windows: windows, fetchedAt: now)
     }
 

@@ -22,6 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController.install()
     }
 
+    /// Live provider sessions use a short request timeout so a stalled remote
+    /// endpoint (observed with Google oauth2/cloudcode-pa) fails in seconds
+    /// instead of hanging the HUD for URLSession's 60s default.
+    static func liveSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 30
+        return URLSession(configuration: configuration)
+    }
+
     /// Wires the credential sources per spec Decision 3: keychain live-read
     /// preferred, explicit import/paste fallback, plus Pi's own credential
     /// file for the auto-connect (File freshest > Pi > Vault on OpenCode;
@@ -40,14 +50,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ])
         }
         return [
-            ClaudeProvider(session: .shared, tokenSource: claudeTokens),
+            ClaudeProvider(session: liveSession(), tokenSource: claudeTokens),
             // auth.json live-read; a vault-imported token is the fallback when
             // ~/.codex/auth.json is missing (Deferred from M2, folded in here).
-            CodexProvider(session: .shared,
+            CodexProvider(session: liveSession(),
                           tokenFallback: VaultCodexTokenFallback(vault: vault,
                                                                  providerID: CodexProvider.providerID)),
             // OpenCode CLI auth.json freshest > Pi's stored key > imported vault.
-            OpenCodeProvider(session: .shared,
+            OpenCodeProvider(session: liveSession(),
                              tokenSource: CompositeOpenCodeTokenSource([
                                  FileOpenCodeTokenSource(),
                                  PiOpenCodeTokenSource(auth: piAuth),
@@ -56,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Pi auto-connect: PiAntigravityTokenSource (inside the provider)
             // supplies the remote-OAuth credential when ~/.pi has the oauth
             // entry — probe (local LS) → Pi → keychain.
-            AntigravityProvider(piAuth: piAuth),
+            AntigravityProvider(session: liveSession(), piAuth: piAuth),
             // Cloud (Pi ollama key) → .ok "Ollama Cloud"; else local daemon.
             OllamaProvider(cloudAuth: piAuth),
             ManualProvider(),
