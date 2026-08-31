@@ -23,9 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Wires the credential sources per spec Decision 3: keychain live-read
-    /// preferred by default, explicit import/paste when the user picks it in
-    /// Settings. The choice is persisted per provider.
+    /// preferred, explicit import/paste fallback, plus Pi's own credential
+    /// file for the auto-connect (File freshest > Pi > Vault on OpenCode;
+    /// Ollama cloud key proves the ollama.com account).
     static func makeProviders(vault: any CredentialVault) -> [any AIProvider] {
+        let piAuth = FilePiAuthSource()
         let claudeMethod = UserDefaults.standard.string(forKey: SettingsKeys.credentialMethod(for: "claude"))
             ?? SettingsDefaults.credentialMethodKeychain
         let claudeTokens: any ClaudeTokenSource
@@ -44,14 +46,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CodexProvider(session: .shared,
                           tokenFallback: VaultCodexTokenFallback(vault: vault,
                                                                  providerID: CodexProvider.providerID)),
-            // auth.json live-read preferred, imported key as fallback.
+            // OpenCode CLI auth.json freshest > Pi's stored key > imported vault.
             OpenCodeProvider(session: .shared,
                              tokenSource: CompositeOpenCodeTokenSource([
                                  FileOpenCodeTokenSource(),
+                                 PiOpenCodeTokenSource(auth: piAuth),
                                  VaultOpenCodeTokenSource(vault: vault, providerID: OpenCodeProvider.providerID),
                              ])),
             AntigravityProvider(),
-            OllamaProvider(),
+            // Cloud (Pi ollama key) → .ok "Ollama Cloud"; else local daemon.
+            OllamaProvider(cloudAuth: piAuth),
             ManualProvider(),
         ]
     }
