@@ -101,10 +101,14 @@ public struct UsageSnapshot: Hashable, Sendable, Codable {
     public var planName: String?
     public var windows: [UsageWindow]
     public var fetchedAt: Date
+    /// Optional status hint carried by the snapshot (e.g. `.local` for Ollama
+    /// with no subscription quota); nil means a plain successful fetch.
+    public var status: ProviderStatus?
 
-    public init(planName: String? = nil, windows: [UsageWindow], fetchedAt: Date = Date()) {
+    public init(planName: String? = nil, windows: [UsageWindow], fetchedAt: Date = Date(), status: ProviderStatus? = nil) {
         self.planName = planName
         self.windows = windows
         self.fetchedAt = fetchedAt
+        self.status = status
     }
 }
