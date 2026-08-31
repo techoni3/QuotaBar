@@ -1,3 +1,4 @@
+import AIMeterCore
 import AppKit
 import SwiftUI
 
@@ -54,7 +55,7 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
             }
             Section("Providers") {
-                Text("No providers connected yet — Claude, Codex and others arrive in M2.")
+                Text("Connect providers from the HUD panel (menu bar icon). Claude reads Claude Code's keychain entry; Codex reads ~/.codex/auth.json. Imported tokens live in AIMeter's own keychain item.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

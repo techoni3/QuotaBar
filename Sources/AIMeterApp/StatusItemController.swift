@@ -1,3 +1,4 @@
+import AIMeterCore
 import AppKit
 import SwiftUI
 
@@ -7,6 +8,24 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var hudPanel: HUDPanel?
     private var settingsController: SettingsWindowController?
+    private let viewModel: HUDViewModel
+    private var tintTask: Task<Void, Never>?
+
+    init(refresher: UsageRefresher, vault: any CredentialVault) {
+        viewModel = HUDViewModel(refresher: refresher, vault: vault)
+        super.init()
+        tintTask = Task { [weak self] in
+            for await state in refresher.updates {
+                let worst = state.results.values.compactMap { try? $0.get() }
+                    .map(\.worstTint).max { $0.severityRank < $1.severityRank } ?? .green
+                self?.applyTint(worst)
+            }
+        }
+    }
+
+    private func applyTint(_ tint: UsageTint) {
+        statusItem?.button?.contentTintColor = tint.color
+    }
 
     func install() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -67,13 +86,15 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         if hudPanel == nil {
             hudPanel = makeHUDPanel()
         }
+        // Spec Decision 4: refresh when the HUD opens.
+        viewModel.refreshAll()
         positionAndShow(panel: hudPanel!)
     }
 
     private func makeHUDPanel() -> HUDPanel {
         let panel = HUDPanel()
         panel.delegate = self
-        panel.contentView = NSHostingView(rootView: HUDRootView())
+        panel.contentView = NSHostingView(rootView: HUDRootView(viewModel: viewModel))
         return panel
     }
 
