@@ -1,0 +1,9 @@
+{
+  "_comment": "synthetic fixture based on steipete/CodexBar docs/claude.md (window names, plan tiers) and tae0y/claude-usage-menubar UsageAPIClient (five_hour/seven_day {utilization, resets_at} shape)",
+  "five_hour": { "utilization": 27.4, "resets_at": "2030-01-01T14:00:00.000Z" },
+  "seven_day": { "utilization": 18.6, "resets_at": "2030-01-06T00:00:00.000Z" },
+  "seven_day_opus": { "utilization": 91.2, "resets_at": "2030-01-06T00:00:00.000Z" },
+  "subscriptionType": "max",
+  "rate_limit_tier": "default_claude_max_20x",
+  "extra_usage": { "is_enabled": true, "monthly_limit": 35.0, "used_monthly": 7.0, "currency": "USD" }
+}

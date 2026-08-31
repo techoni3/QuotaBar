@@ -1,0 +1,5 @@
+{
+  "_comment": "synthetic fixture based on tae0y/claude-usage-menubar UsageAPIClient (minimal response: only the two base windows, no plan fields)",
+  "five_hour": { "utilization": 3.0, "resets_at": "2030-01-01T14:00:00.000Z" },
+  "seven_day": { "utilization": 55.5, "resets_at": "2030-01-06T00:00:00.000Z" }
+}

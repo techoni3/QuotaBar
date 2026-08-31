@@ -27,7 +27,8 @@ let package = Package(
                 .target(name: "AIMeterCore"),
                 .product(name: "Testing", package: "swift-testing"),
             ],
-            path: "Tests/AIMeterCoreTests"
+            path: "Tests/AIMeterCoreTests",
+            resources: [.copy("Fixtures")]
         )
     ]
 )

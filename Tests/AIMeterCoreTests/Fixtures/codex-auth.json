@@ -1,0 +1,11 @@
+{
+  "_comment": "synthetic fixture based on abuhanna/winusage docs/providers/codex.md (auth.json shape: tokens + last_refresh)",
+  "OPENAI_API_KEY": null,
+  "tokens": {
+    "access_token": "test-access-token",
+    "refresh_token": "test-refresh-token",
+    "id_token": "test-id-token",
+    "account_id": "acc-123"
+  },
+  "last_refresh": "2026-01-28T08:05:37Z"
+}

@@ -1,0 +1,11 @@
+{
+  "_comment": "synthetic fixture based on abuhanna/winusage docs/providers/codex.md (GET /backend-api/wham/usage response: plan_type, rate_limit primary/secondary windows with unix-second reset_at, optional code_review_rate_limit)",
+  "plan_type": "plus",
+  "rate_limit": {
+    "primary_window": { "used_percent": 6, "reset_at": 1900003600, "limit_window_seconds": 18000 },
+    "secondary_window": { "used_percent": 24, "reset_at": 1900900000, "limit_window_seconds": 604800 }
+  },
+  "code_review_rate_limit": {
+    "primary_window": { "used_percent": 0, "reset_at": 1900900000, "limit_window_seconds": 604800 }
+  }
+}
