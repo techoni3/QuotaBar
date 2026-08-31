@@ -1,0 +1,8 @@
+{
+  "_comment": "synthetic from the LIVE ollama.com/api/usage response (limits.{session,weekly}.{usage 0..1, models[{name, request_count}]} — verified 2026-08-31)",
+  "activity": { "cost": 0.0, "period": { "type": "monthly", "starting_at": "2030-01-01T00:00:00Z", "ending_at": "2030-02-01T00:00:00Z" }, "models": [] },
+  "limits": {
+    "session": { "usage": 0.059, "models": [ { "name": "glm-5.3-flash", "request_count": 48 } ] },
+    "weekly": { "usage": 0.304, "models": [ { "name": "glm-5.3-flash", "request_count": 366 }, { "name": "glm-5.3", "request_count": 87 } ] }
+  }
+}

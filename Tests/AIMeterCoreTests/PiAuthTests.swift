@@ -130,35 +130,3 @@ struct PiCompositeOrderTests {
         #expect(try await source.accessToken() == "vault-key")
     }
 }
-
-struct OllamaCloudTests {
-    @Test func cloudKeyShowsConnectedWithoutNetwork() async throws {
-        let stub = StubSession()
-        stub.respond { _ in .init(status: 599, data: Data(), headers: [:]) } // any network ⇒ failure
-        let provider = OllamaProvider(session: stub.session,
-                                      cloudAuth: FilePiAuthSource(explicitPath: piFixtureURL()))
-
-        let snapshot = try await provider.fetchUsage()
-
-        #expect(snapshot.status == .ok)
-        #expect(snapshot.planName == "Ollama Cloud — connected")
-        #expect(snapshot.windows.first?.label?.contains("Cloud") == true)
-        // No localhost probe happened — the pi key short-circuits to cloud.
-        #expect(stub.requests().isEmpty)
-    }
-
-    @Test func noCloudKeyKeepsLocalBehavior() async throws {
-        let stub = StubSession()
-        stub.respond { request in
-            #expect(request.url?.absoluteString == "http://localhost:11434/api/ps")
-            return .ok(try Fixtures.load("ollama-ps"))
-        }
-        let provider = OllamaProvider(session: stub.session) // no cloudAuth
-
-        let snapshot = try await provider.fetchUsage()
-
-        #expect(snapshot.status == .local)
-        #expect(snapshot.planName == "local — no subscription quota")
-        #expect(stub.requests().count == 1)
-    }
-}
