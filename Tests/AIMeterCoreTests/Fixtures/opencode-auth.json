@@ -1,0 +1,6 @@
+{
+  "_comment": "synthetic fixture based on anomalyco/opencode auth.json (opencode-go api key preferred over opencode Zen key; oauth entries ignored)",
+  "opencode-go": { "type": "api", "key": "sk-opencode-go-test-123" },
+  "opencode": { "type": "api", "key": "sk-zentest-456" },
+  "openai": { "type": "oauth", "access_token": "oauth-ignored" }
+}

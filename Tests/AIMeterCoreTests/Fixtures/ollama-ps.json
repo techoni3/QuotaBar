@@ -1,0 +1,6 @@
+{
+  "_comment": "synthetic fixture based on Ollama /api/ps response (loaded models) — only models[].name is consumed",
+  "models": [
+    { "name": "llama3.2:3b", "model": "registry.ollama.ai/library/llama3.2:3b", "size": 2013187759, "digest": "7ea5244a2f9c", "details": { "format": "gguf", "family": "llama", "parameter_size": "3.2B" }, "expires_at": "2030-01-01T14:00:00.000Z" }
+  ]
+}

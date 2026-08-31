@@ -136,6 +136,48 @@ struct CodexProviderTests {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer proactively-refreshed")
     }
 
+    @Test func vaultFallbackUsedWhenAuthFileMissing() async throws {
+        let stub = StubSession()
+        stub.respond { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer imported-token")
+            return .ok(try Fixtures.load("codex-usage"))
+        }
+        let vault = InMemoryCredentialVault()
+        try vault.storeToken("imported-token", for: CodexProvider.providerID)
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: URL(fileURLWithPath: "/nonexistent/aimeter-test/auth.json")),
+            tokenRefresher: StubTokenRefresher(result: .failure(ProviderError.unavailable("unused"))),
+            tokenFallback: VaultCodexTokenFallback(vault: vault, providerID: CodexProvider.providerID)
+        )
+
+        let snapshot = try await provider.fetchUsage()
+
+        #expect(snapshot.planName == "ChatGPT Plus")
+    }
+
+    @Test func vaultFallbackSkipsWhenTokenStoredForAnotherProvider() async throws {
+        let stub = StubSession()
+        stub.respond { _ in .init(status: 599, data: Data(), headers: [:]) }
+        let vault = InMemoryCredentialVault()
+        try vault.storeToken("wrong-token", for: ProviderID("not-codex"))
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: URL(fileURLWithPath: "/nonexistent/aimeter-test/auth.json")),
+            tokenRefresher: StubTokenRefresher(result: .failure(ProviderError.unavailable("unused"))),
+            tokenFallback: VaultCodexTokenFallback(vault: vault, providerID: CodexProvider.providerID)
+        )
+
+        do {
+            _ = try await provider.fetchUsage()
+            Issue.record("expected notInstalled when no fallback token")
+        } catch let error as ProviderError {
+            #expect(error == .notInstalled)
+        } catch {
+            Issue.record("unexpected error type \(error)")
+        }
+    }
+
     @Test func readerHonorsCodexHomeEnv() {
         let home = URL(fileURLWithPath: "/tmp/some-codex-home")
         let reader = FileCodexAuthReader(environment: ["CODEX_HOME": home.path])
