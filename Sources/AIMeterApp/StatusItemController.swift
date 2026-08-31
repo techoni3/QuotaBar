@@ -169,8 +169,8 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         if settingsController == nil {
             settingsController = SettingsWindowController()
         }
-        // Hotkey + manual-plan edits should apply immediately.
-        settingsController?.show(hotkeyChanged: { [weak self] in
+        // Connect/Disconnect + hotkey + manual-plan edits apply immediately.
+        settingsController?.show(viewModel: viewModel, hotkeyChanged: { [weak self] in
             self?.hotkey.register(self?.currentHotkeyChord() ?? .defaults)
         }, plansChanged: { [weak self] in
             self?.viewModel.refresh(ProviderID("manual"))
