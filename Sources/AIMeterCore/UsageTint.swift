@@ -15,6 +15,15 @@ public enum UsageTint: Equatable, Sendable, CaseIterable {
     /// Threshold for switching to red.
     public static let redThreshold: Int = 90
 
+    /// Numeric severity for ordering: 0 green, 1 amber, 2 red.
+    public var severityRank: Int {
+        switch self {
+        case .green: return 0
+        case .amber: return 1
+        case .red: return 2
+        }
+    }
+
     @MainActor
     public var color: NSColor {
         switch self {
