@@ -31,20 +31,37 @@ public final class CodexProvider: AIProvider, @unchecked Sendable {
     private let session: URLSession
     private let authReader: FileCodexAuthReader
     private let tokenRefresher: any TokenRefresher
+    private let tokenFallback: (any CodexTokenFallback)?
     private let tokenStore = CodexTokenStore()
 
     public init(session: URLSession = .shared,
                 authReader: FileCodexAuthReader = FileCodexAuthReader(),
-                tokenRefresher: any TokenRefresher = OpenAITokenRefresher()) {
+                tokenRefresher: any TokenRefresher = OpenAITokenRefresher(),
+                tokenFallback: (any CodexTokenFallback)? = nil) {
         self.session = session
         self.authReader = authReader
         self.tokenRefresher = tokenRefresher
+        self.tokenFallback = tokenFallback
     }
 
     public func fetchUsage() async throws -> UsageSnapshot {
-        let credentials = try authReader.read()
+        let credentials: CodexAuthFile
+        do {
+            credentials = try authReader.read()
+        } catch ProviderError.notInstalled {
+            // No ~/.codex/auth.json: fall back to an imported token in
+            // AIMeter's vault (Decision 3 import flow), when provided.
+            if let imported = tokenFallback?.importedAccessToken() {
+                return try await fetchUsage(token: imported, accountID: nil)
+            }
+            throw ProviderError.notInstalled
+        }
         guard let tokens = credentials.tokens, !tokens.accessToken.isEmpty else {
             // API-key-only auth.json can't call the ChatGPT backend API.
+            // A vault-imported token is the fallback when configured.
+            if let imported = tokenFallback?.importedAccessToken() {
+                return try await fetchUsage(token: imported, accountID: nil)
+            }
             throw ProviderError.unauthorized(detail: "no OAuth tokens in auth.json")
         }
 
@@ -92,6 +109,29 @@ public final class CodexProvider: AIProvider, @unchecked Sendable {
         let refreshed = try await tokenRefresher.refresh(refreshToken: refreshToken)
         await tokenStore.store(refreshed)
         return refreshed.accessToken
+    }
+}
+
+/// Supplies a vault-imported access token as a fallback when the Codex CLI
+/// credential file is missing (Decision 3 import flow).
+public protocol CodexTokenFallback: Sendable {
+    /// Returns an imported access token, or nil when none is stored.
+    func importedAccessToken() -> String?
+}
+
+/// Reads the imported token from AIMeter's own keychain vault.
+public struct VaultCodexTokenFallback: CodexTokenFallback {
+    private let vault: any CredentialVault
+    private let providerID: ProviderID
+
+    public init(vault: any CredentialVault, providerID: ProviderID) {
+        self.vault = vault
+        self.providerID = providerID
+    }
+
+    public func importedAccessToken() -> String? {
+        guard let token = vault.fetchToken(for: providerID), !token.isEmpty else { return nil }
+        return token
     }
 }
 
