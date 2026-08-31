@@ -1,9 +1,21 @@
 import AIMeterCore
 import SwiftUI
 
+/// Identifiable wrapper for the hoisted single connect sheet.
+private struct ConnectTarget: Identifiable {
+    let id: ProviderID
+}
+
 /// Root content of the HUD panel: one card per provider.
 struct HUDRootView: View {
     @ObservedObject var viewModel: HUDViewModel
+
+    private var connectTarget: Binding<ConnectTarget?> {
+        Binding(
+            get: { viewModel.connectSheetRow.map { ConnectTarget(id: $0) } },
+            set: { if $0 == nil { viewModel.connectSheetRow = nil } }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -39,6 +51,13 @@ struct HUDRootView: View {
         .padding(14)
         .frame(width: StatusItemController.hudPanelWidth)
         .background(HUDChrome())
+        // Single hoisted connect sheet (Audit fix: a per-card .sheet inside an
+        // NSPanel never attached; now the root presents exactly one sheet).
+        .sheet(item: connectTarget) { target in
+            ConnectTokenSheet(providerID: target.id,
+                              providerName: viewModel.displayName(for: target.id) ?? target.id.rawValue,
+                              viewModel: viewModel)
+        }
     }
 
     private var emptyState: some View {
@@ -287,6 +306,9 @@ private struct ConnectTokenSheet: View {
     @State private var token = ""
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var tokenFocused: Bool
+
+    private var trimmedToken: String { token.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -297,31 +319,47 @@ private struct ConnectTokenSheet: View {
                 .foregroundStyle(.secondary)
             SecureField("Access token", text: $token)
                 .textFieldStyle(.roundedBorder)
+                .focused($tokenFocused)
+                .disabled(viewModel.isConnecting)
                 .accessibilityLabel("Access token for \(providerName)")
-            if let errorMessage {
+            if viewModel.isConnecting {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Connecting…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
             }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Connect") {
-                    Task {
-                        do {
-                            try await viewModel.connect(providerID, token: token.trimmingCharacters(in: .whitespaces))
-                            dismiss()
-                        } catch {
-                            errorMessage = "Couldn't store token (\(String(describing: error)))"
-                        }
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(viewModel.isConnecting)
+                Button("Connect") { connect() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedToken.isEmpty || viewModel.isConnecting)
             }
         }
         .padding(18)
         .frame(width: 320)
+        .onAppear { tokenFocused = true }
+    }
+
+    private func connect() {
+        Task {
+            do {
+                // Success closes via connectSheetRow = nil in the view model
+                // (single dismiss — no explicit dismiss() here).
+                try await viewModel.connect(providerID, token: trimmedToken)
+            } catch {
+                errorMessage = "Couldn't store token (\(error))"
+            }
+        }
     }
 }
 
