@@ -25,7 +25,9 @@ struct HUDRootView: View {
                 emptyState
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                              alignment: .leading,
+                              spacing: 12) {
                         ForEach(viewModel.rows) { row in
                             ProviderCard(row: row,
                                          viewModel: viewModel)
@@ -35,7 +37,7 @@ struct HUDRootView: View {
             }
         }
         .padding(14)
-        .frame(width: 340)
+        .frame(width: StatusItemController.hudPanelWidth)
         .background(HUDChrome())
     }
 
@@ -60,12 +62,13 @@ private struct ProviderCard: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 7, height: 7)
-                    .accessibilityHidden(true) // decorative; the label below conveys status
+                Image(systemName: Self.iconName(for: row.id))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                    .accessibilityHidden(true) // decorative; the row label conveys status
                 Text(row.name)
                     .font(.subheadline.weight(.semibold))
                     .accessibilityLabel("\(row.name), \(statusVoiceOverText)")
@@ -73,8 +76,10 @@ private struct ProviderCard: View {
                     Text(plan)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                Spacer()
+                Spacer(minLength: 4)
+                statusChip
                 Button {
                     viewModel.refresh(row.id)
                 } label: {
@@ -165,17 +170,50 @@ private struct ProviderCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(10)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.white.opacity(0.06))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.85))
+                .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
         )
-        .sheet(isPresented: Binding(
-            get: { viewModel.connectSheetRow == row.id },
-            set: { if !$0 { viewModel.connectSheetRow = nil } }
-        )) {
-            ConnectTokenSheet(providerID: row.id, providerName: row.name, viewModel: viewModel)
+    }
+
+    /// Per-provider SF Symbol: claude/codex/opencode/antigravity/ollama/manual.
+    private static func iconName(for id: ProviderID) -> String {
+        switch id.rawValue {
+        case "claude": return "sparkles"
+        case "codex": return "chevron.left.forwardslash.chevron.right"
+        case "opencode": return "terminal"
+        case "antigravity": return "scope"
+        case "ollama": return "bolt"
+        case "manual": return "pencil"
+        default: return "gauge"
         }
+    }
+
+    /// Small status chip in the card header (OK / Watch / Critical / Local / Off).
+    private var statusChip: some View {
+        let (text, color): (String, Color)
+        if !row.enabled {
+            (text, color) = ("Off", .gray)
+        } else if row.status == .local {
+            (text, color) = ("Local", .blue)
+        } else if !row.windows.isEmpty {
+            switch row.windows.map(\.tint).max(by: { $0.severityRank < $1.severityRank }) {
+            case .red: (text, color) = ("Critical", .red)
+            case .amber: (text, color) = ("Watch", .orange)
+            default: (text, color) = ("OK", .green)
+            }
+        } else {
+            (text, color) = ("—", .gray)
+        }
+        return Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(color.opacity(0.16)))
+            .accessibilityLabel("\(row.name) status: \(text)")
     }
 
     private var statusVoiceOverText: String {
@@ -185,16 +223,6 @@ private struct ProviderCard: View {
         case .disabled: return "disabled"
         case .unavailable: return "unavailable"
         case .local: return "local"
-        }
-    }
-
-    private var statusColor: Color {
-        switch row.status {
-        case .ok: return .green
-        case .unauthorized: return .orange
-        case .disabled: return .gray
-        case .unavailable: return .red
-        case .local: return .blue
         }
     }
 }
@@ -226,11 +254,17 @@ private struct UsageBarView: View {
                         .frame(width: geo.size.width * CGFloat(percent) / 100)
                 }
             }
-            .frame(height: 5)
-            HStack {
-                Text("\(percent)% used")
-                    .font(.caption2)
+            .frame(height: 8)
+            HStack(spacing: 6) {
+                Text("\(percent)%")
+                    .font(.caption2.bold())
                     .monospacedDigit()
+                    .foregroundStyle(Color(nsColor: tint.color))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color(nsColor: tint.color).opacity(0.18)))
+                Text("used")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
