@@ -1,14 +1,15 @@
 import Foundation
 
 /// Ollama Cloud usage response: `GET https://ollama.com/api/usage` (Bearer
-/// api_key). Shape verified live (2026-08-31) and documented in
+/// api_key). Shape verified live (2026-08-31, plus monthly 2026-09-01) and documented in
 /// can1357/oh-my-pi#10101:
 /// `{"activity": {…}, "limits": {"session": {"usage": <0..1>, "models":
-/// [{"name", "request_count"}]}, "weekly": {…}}}`.
+/// [{"name", "request_count"}]}, "weekly": {…}, "monthly": {…}}}`.
 struct OllamaCloudUsage: Decodable, Equatable, Sendable {
     struct Limits: Decodable, Equatable, Sendable {
         let session: Window?
         let weekly: Window?
+        let monthly: Window?
     }
     struct Window: Decodable, Equatable, Sendable {
         /// Fraction of the 5h/7d allowance, 0..1.
@@ -43,6 +44,7 @@ extension OllamaProvider {
         }
         append(usage.limits?.session, .session5h, baseLabel: "Cloud session (5h)")
         append(usage.limits?.weekly, .week7d, baseLabel: "Cloud weekly")
+        append(usage.limits?.monthly, .month, baseLabel: "Cloud monthly")
         return UsageSnapshot(planName: "Ollama Cloud — connected", windows: windows, fetchedAt: fetchedAt, status: .ok)
     }
 
@@ -54,6 +56,7 @@ extension OllamaProvider {
             windows: [
                 UsageWindow(kind: .session5h, usedPercent: 0, resetsAt: nil, label: "Cloud session (5h)"),
                 UsageWindow(kind: .week7d, usedPercent: 0, resetsAt: nil, label: "Cloud weekly"),
+                UsageWindow(kind: .month, usedPercent: 0, resetsAt: nil, label: "Cloud monthly"),
             ],
             fetchedAt: Date(),
             status: .ok

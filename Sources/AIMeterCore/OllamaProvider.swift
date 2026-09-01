@@ -48,7 +48,12 @@ public struct OllamaProvider: AIProvider {
             } catch {
                 return Self.cloudFallbackSnapshot()
             }
-            return Self.cloudSnapshot(from: usage, fetchedAt: Date())
+            let snapshot = Self.cloudSnapshot(from: usage, fetchedAt: Date())
+            // If live response has no session/weekly/monthly windows (e.g., shape change), keep-stable fallback so HUD never shows empty.
+            if snapshot.windows.isEmpty {
+                return Self.cloudFallbackSnapshot()
+            }
+            return snapshot
         }
         let models: [String]
         do {

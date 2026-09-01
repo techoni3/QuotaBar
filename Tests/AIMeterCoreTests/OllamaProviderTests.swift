@@ -130,7 +130,7 @@ struct OllamaCloudTests {
 
         #expect(snapshot.status == .ok) // row stays visible (keep-stable)
         #expect(snapshot.planName == "Ollama Cloud — connected")
-        #expect(snapshot.windows.map(\.kind) == [.session5h, .week7d])
+        #expect(snapshot.windows.map(\.kind) == [.session5h, .week7d, .month])
         #expect(snapshot.windows.allSatisfy { $0.usedPercent == 0 })
     }
 
@@ -140,7 +140,7 @@ struct OllamaCloudTests {
         let provider = OllamaProvider(session: stub.session, cloudAuth: Self.piAuthForTests())
         let snapshot = try await provider.fetchUsage()
         #expect(snapshot.status == .ok)
-        #expect(snapshot.windows.count == 2)
+        #expect(snapshot.windows.count == 3)
     }
 
     @Test func localOllamaNeverFetchesCloud() async throws {
