@@ -148,7 +148,7 @@ private struct ProviderCard: View {
         )
     }
 
-    /// Per-provider SF Symbol: claude/codex/opencode/antigravity/ollama/manual.
+    /// Per-provider SF Symbol: claude/codex/opencode/antigravity/ollama/copilot/openrouter/manual.
     private static func iconName(for id: ProviderID) -> String {
         switch id.rawValue {
         case "claude": return "sparkles"
@@ -156,6 +156,8 @@ private struct ProviderCard: View {
         case "opencode": return "terminal"
         case "antigravity": return "scope"
         case "ollama": return "bolt"
+        case "github-copilot", "copilot": return "person.2"
+        case "openrouter": return "arrow.left.arrow.right"
         case "manual": return "pencil"
         default: return "gauge"
         }

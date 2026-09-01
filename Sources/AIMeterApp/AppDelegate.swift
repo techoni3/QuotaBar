@@ -69,6 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AntigravityProvider(session: liveSession(), piAuth: piAuth),
             // Cloud (Pi ollama key) → .ok "Ollama Cloud"; else local daemon.
             OllamaProvider(cloudAuth: piAuth),
+            // Pi auto-connect (oauth): github-copilot key proves the Copilot business seat.
+            CopilotProvider(piAuth: piAuth),
+            // Pi auto-connect (api_key): openrouter key proves the OpenRouter account.
+            OpenRouterProvider(cloudAuth: piAuth),
             ManualProvider(),
         ]
     }

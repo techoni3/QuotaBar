@@ -65,6 +65,7 @@ struct SettingsView: View {
     @State private var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @State private var launchError: String?
     @State private var saveTask: Task<Void, Never>?
+    @State private var helpFor: ProviderID?
 
     private let store: any ManualPlanStore
 
@@ -223,6 +224,23 @@ struct SettingsView: View {
                 Text(statusText(row))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Button {
+                    helpFor = (helpFor == row.id ? nil : row.id)
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .help(helpText(for: row.id))
+                .popover(isPresented: Binding(
+                    get: { helpFor == row.id },
+                    set: { isPresented in helpFor = isPresented ? row.id : nil }
+                )) {
+                    Text(helpText(for: row.id))
+                        .font(.caption)
+                        .padding(10)
+                        .frame(width: 280)
+                }
             }
             if row.enabled, row.status == .unauthorized || row.status == .unavailable {
                 HStack(spacing: 6) {
@@ -291,6 +309,27 @@ struct SettingsView: View {
         case .unauthorized: return .orange
         case .unavailable: return .red
         case .disabled: return .gray
+        }
+    }
+
+    private func helpText(for id: ProviderID) -> String {
+        switch id.rawValue {
+        case "github-copilot":
+            return "GitHub Copilot — auto-connects via Pi (github-copilot OAuth). Add via Pi auth at ~/.pi/agent/auth.json. Business seat with no quota window shows as connected at 0%. Auth expired → Reconnect. AIMeter never writes to ~/.pi and never logs tokens."
+        case "openrouter":
+            return "OpenRouter — auto-connects via Pi (openrouter api_key). Stores key in ~/.pi/agent/auth.json. Fetch is GET https://openrouter.ai/api/v1/credits or /auth/key. No key → Not connected (hidden from HUD). 401 → Auth expired → Reconnect. AIMeter never writes to ~/.pi."
+        case "ollama":
+            return "Ollama — Pi cloud key (ollama) → Ollama Cloud; else local daemon at localhost:11434."
+        case "opencode":
+            return "OpenCode — File (~/.local/share/opencode/auth.json) > Pi (opencode-go) > Vault."
+        case "antigravity":
+            return "Antigravity — local language server → Pi OAuth → keychain. Never writes back."
+        case "claude":
+            return "Claude — Keychain (live) or Imported token."
+        case "codex":
+            return "Codex — ~/.codex/auth.json live-read, Vault import fallback."
+        default:
+            return "Connect or Disconnect this provider. Pi providers auto-connect and never log tokens."
         }
     }
 
