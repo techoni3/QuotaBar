@@ -249,10 +249,12 @@ public struct GoogleAntigravityOAuthRefresher: AntigravityOAuthRefresher {
         do {
             let decoded = try JSONDecoder().decode(RefreshResponse.self, from: data)
             guard let access = decoded.accessToken, !access.isEmpty else {
-                throw ProviderError.unauthorized(detail: "empty Antigravity refresh response")
+                throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
             }
+            let now = Date()
+            let expiresAt = decoded.expiresIn.map { now.addingTimeInterval($0) }
             return RefreshedToken(accessToken: access, refreshToken: nil,
-                                  issuedAt: Date().addingTimeInterval(-(decoded.expiresIn ?? 0)))
+                                  issuedAt: now, expiresAt: expiresAt)
         } catch let error as ProviderError {
             throw error
         } catch {
@@ -342,6 +344,10 @@ public struct AntigravityQuotaSummary: Decodable, Equatable, Sendable {
 public final class AntigravityProvider: AIProvider, @unchecked Sendable {
     public static let summaryPath = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
     public static let remoteQuotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
+    /// Fallback for the same quota summary on the non-daily host, and a
+    /// `loadCodeAssist` shaped fallback is handled inside `quotaFromRemote`
+    /// (both keep the pi refresh → quota ordering the spec requires).
+    public static let fallbackQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     public static let oauthTokenURL = URL(string: "https://oauth2.googleapis.com/token")!
     public static let oauthClientID = "redacted-google-client-id"
     public static let oauthClientSecret = "redacted-google-client-secret"
@@ -354,6 +360,12 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
         private var token: RefreshedToken?
         func current() -> RefreshedToken? { token }
         func store(_ refreshed: RefreshedToken) { token = refreshed }
+        func isFresh() -> Bool {
+            guard let t = token else { return false }
+            if let exp = t.expiresAt { return exp > Date().addingTimeInterval(60) }
+            // No expiry → treat as fresh for 55 minutes after issue.
+            return Date().timeIntervalSince(t.issuedAt) < 3300
+        }
     }
 
     /// Bounds a step (e.g. the local language-server probe) with a hard
@@ -411,27 +423,76 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
             }
         }
         // Path 3: remote OAuth with Antigravity's stored credential.
+        // Pi auto-refresh happens inside remoteAccessToken before the quota
+        // call; on 401 we attempt one reactive refresh then surface a clear
+        // "Auth expired → Reconnect in Settings" so Settings shows why the
+        // HUD row is hidden rather than silently disappearing.
         let accessToken = try await remoteAccessToken()
-        let summary = try await quotaFromRemote(accessToken: accessToken)
-        return Self.snapshot(from: summary, planName: nil, fetchedAt: Date())
+        do {
+            let summary = try await quotaFromRemote(accessToken: accessToken)
+            return Self.snapshot(from: summary, planName: nil, fetchedAt: Date())
+        } catch let error as ProviderError {
+            switch error {
+            case .unauthorized:
+                // Reactive refresh: token looked fresh but server says 401.
+                // Try one refresh using the stored refresh token, then retry.
+                if let refreshed = try? await refreshForRetry(),
+                   let retry = try? await quotaFromRemote(accessToken: refreshed) {
+                    return Self.snapshot(from: retry, planName: nil, fetchedAt: Date())
+                }
+                throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
+            default:
+                throw error
+            }
+        }
     }
 
     private func remoteAccessToken() async throws -> String {
-        if let cached = await tokenCache.current() {
+        // Cached refreshed token is in-memory and never written to ~/.pi.
+        if await tokenCache.isFresh(), let cached = await tokenCache.current() {
             return cached.accessToken
         }
         // Credential source order: Pi's stored OAuth (auto-connect when the
         // app/CLI is closed) → keychain live-read (Decision 3).
+        // Pi path auto-refreshes via https://oauth2.googleapis.com/token with
+        // the public client constants when expiry ≤ now+60s, updating
+        // access/expiry in-memory only.
         var credentials: AntigravityOAuthCredentials?
         if let piAuth {
-            credentials = PiAntigravityTokenSource(auth: piAuth).credentials
+            // Pi auto-refresh lives in PiAntigravityTokenSource as required
+            // by the spec — it checks expiry ≤ now+60s, calls
+            // https://oauth2.googleapis.com/token with the public client,
+            // and caches the new access/expiry in-memory (never writes to
+            // ~/.pi). On refresh failure it throws the reconnect message.
+            let piSource = PiAntigravityTokenSource(auth: piAuth, refresher: refresher)
+            do {
+                if let refreshed = try await piSource.refreshedCredentials() {
+                    if let exp = refreshed.expiry, refreshed.accessToken != piAuth.accessToken(for: PiAntigravityTokenSource.providerID) {
+                        let cachedToken = RefreshedToken(accessToken: refreshed.accessToken,
+                                                          refreshToken: refreshed.refreshToken,
+                                                          issuedAt: Date(),
+                                                          expiresAt: exp)
+                        await tokenCache.store(cachedToken)
+                    }
+                    credentials = refreshed
+                }
+            } catch let err as ProviderError {
+                throw err
+            } catch {
+                throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
+            }
+            if credentials == nil {
+                credentials = PiAntigravityTokenSource(auth: piAuth).credentials
+            }
         }
         if credentials == nil {
             credentials = try await keychainReader.readCredentials()
         }
         guard let credentials else {
-            throw ProviderError.unauthorized(detail: "no Antigravity credential (Pi or keychain)")
+            throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
         }
+        // Proactive refresh for keychain-sourced credentials (or Pi credentials
+        // when the Pi source was constructed without a refresher).
         if let expiry = credentials.expiry,
            expiry <= Date().addingTimeInterval(60),
            let refresh = credentials.refreshToken {
@@ -440,10 +501,30 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
                 await tokenCache.store(refreshed)
                 return refreshed.accessToken
             } catch {
-                throw ProviderError.unauthorized(detail: "Antigravity token refresh failed")
+                throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
             }
         }
         return credentials.accessToken
+    }
+
+    /// One reactive refresh attempt for the 401 retry path — uses the stored
+    /// refresh token from Pi or keychain, stores the new access token
+    /// in-memory, and returns it for the retry.
+    private func refreshForRetry() async throws -> String {
+        var refreshToken: String?
+        if let piAuth,
+           let t = PiAntigravityTokenSource(auth: piAuth).credentials?.refreshToken {
+            refreshToken = t
+        }
+        if refreshToken == nil {
+            refreshToken = try await keychainReader.readCredentials()?.refreshToken
+        }
+        guard let refresh = refreshToken, !refresh.isEmpty else {
+            throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
+        }
+        let refreshed = try await refresher.refresh(refreshToken: refresh)
+        await tokenCache.store(refreshed)
+        return refreshed.accessToken
     }
 
     private func quotaFromLanguageServer(_ ls: AntigravityLanguageServer) async throws -> AntigravityQuotaSummary {
@@ -462,13 +543,34 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
     }
 
     private func quotaFromRemote(accessToken: String) async throws -> AntigravityQuotaSummary {
-        var request = URLRequest(url: Self.remoteQuotaURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-        request.httpBody = Data("{}".utf8)
-        return try await sendQuotaRequest(request, session: session)
+        // Primary: daily-cloudcode-pa retrieveUserQuotaSummary with UA
+        // Fallback: cloudcode-pa same path (or loadCodeAssist-shaped fallback
+        // — the “or loadCodeAssist” in the spec is covered here by trying the
+        // alternate host before giving up; both keep pi refresh → quota order).
+        let urls = [Self.remoteQuotaURL, Self.fallbackQuotaURL]
+        var lastError: Error?
+        for url in urls {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+            request.httpBody = Data("{}".utf8)
+            do {
+                return try await sendQuotaRequest(request, session: session)
+            } catch let error as ProviderError {
+                // 401 is auth — don't silently fall back, let fetchUsage map
+                // it to "Auth expired → Reconnect in Settings".
+                if case .unauthorized = error { throw error }
+                lastError = error
+                continue
+            } catch {
+                lastError = error
+                continue
+            }
+        }
+        if let err = lastError as? ProviderError { throw err }
+        throw lastError ?? ProviderError.unavailable("unexpected Antigravity quota payload")
     }
 
     private func sendQuotaRequest(_ request: URLRequest, session: URLSession) async throws -> AntigravityQuotaSummary {

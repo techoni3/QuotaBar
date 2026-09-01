@@ -6,11 +6,14 @@ public struct RefreshedToken: Equatable, Sendable {
     /// Some providers rotate the refresh token; nil means keep the old one.
     public let refreshToken: String?
     public let issuedAt: Date
+    /// Expiry computed from `expires_in` when the provider returns it.
+    public let expiresAt: Date?
 
-    public init(accessToken: String, refreshToken: String?, issuedAt: Date = Date()) {
+    public init(accessToken: String, refreshToken: String?, issuedAt: Date = Date(), expiresAt: Date? = nil) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.issuedAt = issuedAt
+        self.expiresAt = expiresAt
     }
 }
 
@@ -60,11 +63,13 @@ public struct OpenAITokenRefresher: TokenRefresher {
             }
         }
         let decoded = try JSONDecoder().decode(RefreshResponse.self, from: data)
-        let issuedAt = Date().addingTimeInterval(-(decoded.expiresIn ?? 0))
+        let now = Date()
+        let expiresAt = decoded.expiresIn.map { now.addingTimeInterval($0) }
         return RefreshedToken(
             accessToken: decoded.accessToken,
             refreshToken: decoded.refreshToken ?? refreshToken,
-            issuedAt: issuedAt
+            issuedAt: now,
+            expiresAt: expiresAt
         )
     }
 }

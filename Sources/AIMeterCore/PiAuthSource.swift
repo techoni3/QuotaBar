@@ -107,15 +107,31 @@ public struct FilePiAuthSource: PiAuthReading {
 /// Antigravity OAuth credential from Pi's credential file (auto-connect for
 /// the remote path; injected between the local language-server probe and the
 /// keychain live-read in the provider's source order).
-public struct PiAntigravityTokenSource: Sendable {
+///
+/// Auto-refresh: when the Pi token is expired (expiry ≤ now+60s) and a
+/// refresh token exists, the source refreshes via
+/// `https://oauth2.googleapis.com/token` with the Antigravity public client
+/// constants, updating access/expiry in-memory only (never writes to ~/.pi
+/// and never logs tokens).
+/// Pi-backed Antigravity token source with auto-refresh.
+/// Reads `~/.pi/agent/auth.json` (or legacy) and, when the stored OAuth token
+/// is expired (expiry ≤ now+60s) and a refresh token exists, refreshes via
+/// `https://oauth2.googleapis.com/token` using the Antigravity public client
+/// (`client_id`/`client_secret`). Refreshed access/expiry are cached
+/// in-memory only and never written to `~/.pi` (and never logged).
+public final class PiAntigravityTokenSource: @unchecked Sendable {
     public static let providerID = "antigravity"
 
     private let auth: any PiAuthReading
+    private let refresher: (any AntigravityOAuthRefresher)?
 
-    public init(auth: any PiAuthReading) {
+    public init(auth: any PiAuthReading, refresher: (any AntigravityOAuthRefresher)? = nil) {
         self.auth = auth
+        self.refresher = refresher
     }
 
+    /// Synchronous file-only credentials (no network, no refresh) — kept for
+    /// existing callers and tests that assert the on-disk shape.
     public var credentials: AntigravityOAuthCredentials? {
         guard let access = auth.accessToken(for: Self.providerID), !access.isEmpty else { return nil }
         return AntigravityOAuthCredentials(
@@ -123,6 +139,32 @@ public struct PiAntigravityTokenSource: Sendable {
             expiry: auth.expiryDate(for: Self.providerID),
             refreshToken: auth.refreshToken(for: Self.providerID)
         )
+    }
+
+    /// Auto-refreshing credential load: checks expiry (≤60s), refreshes via
+    /// the OAuth token endpoint with the Antigravity public client, and
+    /// returns the new access/expiry. The caller is responsible for caching
+    /// the result in-memory (provider's TokenCache) — never writes to
+    /// `~/.pi`. Throws `ProviderError.unauthorized("Auth expired →
+    /// Reconnect in Settings")` when the refresh fails so the caller can
+    /// surface a clear Settings affordance instead of a silent hide.
+    public func refreshedCredentials() async throws -> AntigravityOAuthCredentials? {
+        guard let base = credentials else { return nil }
+        guard let expiry = base.expiry, expiry <= Date().addingTimeInterval(60),
+              let refresh = base.refreshToken, !refresh.isEmpty,
+              let refresher else {
+            return base
+        }
+        do {
+            let refreshed = try await refresher.refresh(refreshToken: refresh)
+            return AntigravityOAuthCredentials(
+                accessToken: refreshed.accessToken,
+                expiry: refreshed.expiresAt ?? Date().addingTimeInterval(3600),
+                refreshToken: refreshed.refreshToken ?? refresh
+            )
+        } catch {
+            throw ProviderError.unauthorized(detail: "Auth expired → Reconnect in Settings")
+        }
     }
 }
 

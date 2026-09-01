@@ -1,0 +1,20 @@
+{
+  "planName": "Antigravity Pro",
+  "_comment": "live-like 4-window shape for PER-13 expired→refreshed test: Gemini 100% (5h 0.0), Gemini weekly 66% (0.34), Claude 5h 0% (1.0), Claude weekly 34% (0.66) — flat remainingFraction + window tags, covers Gemini+Claude/GPT each 5h/weekly",
+  "groups": [
+    {
+      "displayName": "Gemini models",
+      "buckets": [
+        { "bucketId": "gemini_5h", "displayName": "5h", "window": "5h", "remainingFraction": 0.0, "resetTime": "2030-01-02T10:00:00.000Z", "disabled": false },
+        { "bucketId": "gemini_week", "displayName": "Weekly", "window": "week", "remainingFraction": 0.34, "resetTime": "2030-01-06T00:00:00.000Z", "disabled": false }
+      ]
+    },
+    {
+      "displayName": "Claude and GPT models",
+      "buckets": [
+        { "bucketId": "claude_5h", "displayName": "5h", "window": "5h", "remainingFraction": 1.0, "resetTime": "2030-01-02T11:00:00.000Z", "disabled": false },
+        { "bucketId": "claude_week", "displayName": "Weekly", "window": "week", "remainingFraction": 0.66, "resetTime": "2030-01-06T01:00:00.000Z", "disabled": false }
+      ]
+    }
+  ]
+}
