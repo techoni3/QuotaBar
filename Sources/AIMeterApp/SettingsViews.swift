@@ -224,6 +224,13 @@ struct SettingsView: View {
                 Text(statusText(row))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Enable", isOn: Binding(
+                    get: { row.enabled },
+                    set: { viewModel.setEnabled(row.id, $0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .accessibilityLabel("Enable \(row.name)")
                 Button {
                     helpFor = (helpFor == row.id ? nil : row.id)
                 } label: {
