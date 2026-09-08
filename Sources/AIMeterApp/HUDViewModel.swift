@@ -155,7 +155,9 @@ final class HUDViewModel: ObservableObject {
         }
         self.rows = rows
         self.visibleRows = rows.filter { provider in
-            (provider.status == .ok || provider.status == .local) && !provider.windows.isEmpty
+            provider.enabled
+                && (provider.status == .ok || provider.status == .local)
+                && !provider.windows.isEmpty
         }
         self.worstTint = worst
         self.connectedCount = connected

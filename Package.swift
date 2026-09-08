@@ -34,6 +34,14 @@ let package = Package(
             ],
             path: "Tests/AIMeterCoreTests",
             resources: [.copy("Fixtures")]
+        ),
+        .testTarget(
+            name: "AIMeterAppTests",
+            dependencies: [
+                .target(name: "AIMeterApp"),
+                .product(name: "Testing", package: "swift-testing"),
+            ],
+            path: "Tests/AIMeterAppTests"
         )
     ]
 )
