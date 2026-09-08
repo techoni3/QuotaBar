@@ -42,6 +42,141 @@ struct CodexProviderTests {
         #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
     }
 
+    @Test func piOAuthTakesPriorityAndSendsAccountHeader() async throws {
+        let piPath = try makePiAuthPath(expiresAt: Date().addingTimeInterval(3_600))
+        defer { try? FileManager.default.removeItem(at: piPath.deletingLastPathComponent()) }
+        let stub = StubSession()
+        stub.respond { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer pi-codex-access")
+            #expect(request.value(forHTTPHeaderField: "ChatGPT-Account-Id") == "pi-account")
+            return .ok(try Fixtures.load("codex-usage"))
+        }
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: try authFixturePath()),
+            piAuth: FilePiAuthSource(explicitPath: piPath),
+            tokenRefresher: StubTokenRefresher(result: .failure(ProviderError.unavailable("unused")))
+        )
+
+        let snapshot = try await provider.fetchUsage()
+
+        #expect(snapshot.planName == "ChatGPT Plus")
+        #expect(stub.requests().count == 1)
+    }
+
+    @Test func nearExpiryPiTokenRefreshesInMemoryWithoutWritingFile() async throws {
+        let piPath = try makePiAuthPath(expiresAt: Date().addingTimeInterval(4 * 60))
+        defer { try? FileManager.default.removeItem(at: piPath.deletingLastPathComponent()) }
+        let before = try Data(contentsOf: piPath)
+        let stub = StubSession()
+        stub.respond { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-pi-access")
+            return .ok(try Fixtures.load("codex-usage"))
+        }
+        let refresher = StubTokenRefresher(result: .success(RefreshedToken(
+            accessToken: "refreshed-pi-access",
+            refreshToken: "rotated-pi-refresh",
+            expiresAt: Date().addingTimeInterval(3_600)
+        )))
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: URL(fileURLWithPath: "/nonexistent/codex/auth.json")),
+            piAuth: FilePiAuthSource(explicitPath: piPath),
+            tokenRefresher: refresher
+        )
+
+        _ = try await provider.fetchUsage()
+        _ = try await provider.fetchUsage()
+
+        #expect(refresher.calls == ["pi-codex-refresh"])
+        #expect(try Data(contentsOf: piPath) == before)
+    }
+
+    @Test func rejectedPiTokenRefreshesOnceAndRetries() async throws {
+        let piPath = try makePiAuthPath(expiresAt: Date().addingTimeInterval(3_600))
+        defer { try? FileManager.default.removeItem(at: piPath.deletingLastPathComponent()) }
+        let stub = StubSession()
+        stub.respond { request in
+            if request.value(forHTTPHeaderField: "Authorization") == "Bearer pi-codex-access" {
+                return .init(status: 401, data: Data(), headers: [:])
+            }
+            return .ok(try Fixtures.load("codex-usage"))
+        }
+        let refresher = StubTokenRefresher(result: .success(RefreshedToken(
+            accessToken: "refreshed-after-401",
+            refreshToken: "rotated-after-401",
+            expiresAt: Date().addingTimeInterval(3_600)
+        )))
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: URL(fileURLWithPath: "/nonexistent/codex/auth.json")),
+            piAuth: FilePiAuthSource(explicitPath: piPath),
+            tokenRefresher: refresher
+        )
+
+        _ = try await provider.fetchUsage()
+
+        #expect(refresher.calls == ["pi-codex-refresh"])
+        #expect(stub.requests().count == 2)
+        #expect(stub.requests().last?.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-after-401")
+    }
+
+    @Test func cachedPiRefreshUsesRotatedRefreshTokenOnLater401() async throws {
+        let piPath = try makePiAuthPath(expiresAt: Date().addingTimeInterval(4 * 60))
+        defer { try? FileManager.default.removeItem(at: piPath.deletingLastPathComponent()) }
+        let stub = StubSession()
+        var refreshedRequests = 0
+        stub.respond { request in
+            if request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-pi-access" {
+                refreshedRequests += 1
+                if refreshedRequests == 2 {
+                    return .init(status: 401, data: Data(), headers: [:])
+                }
+            }
+            return .ok(try Fixtures.load("codex-usage"))
+        }
+        let refresher = StubTokenRefresher(result: .success(RefreshedToken(
+            accessToken: "refreshed-pi-access",
+            refreshToken: "rotated-pi-refresh",
+            expiresAt: Date().addingTimeInterval(3_600)
+        )))
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: URL(fileURLWithPath: "/nonexistent/codex/auth.json")),
+            piAuth: FilePiAuthSource(explicitPath: piPath),
+            tokenRefresher: refresher
+        )
+
+        _ = try await provider.fetchUsage()
+        _ = try await provider.fetchUsage()
+
+        #expect(refresher.calls == ["pi-codex-refresh", "rotated-pi-refresh"])
+        #expect(stub.requests().count == 3)
+    }
+
+    @Test func nativeFileRemainsFallbackWhenPiHasNoCodexOAuth() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aimeter-pi-no-codex-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let piPath = dir.appendingPathComponent("auth.json")
+        try Data(#"{"openai-codex":{"type":"api_key","key":"not-an-oauth-token"}}"#.utf8).write(to: piPath)
+        let stub = StubSession()
+        stub.respond { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-access-token")
+            return .ok(try Fixtures.load("codex-usage"))
+        }
+        let provider = CodexProvider(
+            session: stub.session,
+            authReader: FileCodexAuthReader(explicitPath: try authFixturePath()),
+            piAuth: FilePiAuthSource(explicitPath: piPath),
+            tokenRefresher: StubTokenRefresher(result: .failure(ProviderError.unavailable("unused")))
+        )
+
+        _ = try await provider.fetchUsage()
+
+        #expect(stub.requests().count == 1)
+    }
+
     @Test func missingAuthFileIsNotInstalled() async {
         let reader = FileCodexAuthReader(explicitPath: URL(fileURLWithPath: "/nonexistent/aimeter-test/auth.json"))
         let provider = CodexProvider(session: StubSession().session, authReader: reader,
@@ -223,5 +358,22 @@ struct CodexProviderTests {
     private func authFixturePath() throws -> URL {
         let url = try #require(Bundle.module.url(forResource: "codex-auth", withExtension: "json", subdirectory: "Fixtures"))
         return url
+    }
+
+    private func makePiAuthPath(expiresAt: Date) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aimeter-codex-pi-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("auth.json")
+        let payload: [String: Any] = [
+            "openai-codex": [
+                "type": "oauth",
+                "access": "pi-codex-access",
+                "refresh": "pi-codex-refresh",
+                "expires": expiresAt.timeIntervalSince1970 * 1_000,
+                "accountId": "pi-account",
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: payload).write(to: path)
+        return path
     }
 }

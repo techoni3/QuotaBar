@@ -51,9 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return [
             ClaudeProvider(session: liveSession(), tokenSource: claudeTokens),
-            // auth.json live-read; a vault-imported token is the fallback when
-            // ~/.codex/auth.json is missing (Deferred from M2, folded in here).
+            // Pi openai-codex OAuth → Codex CLI auth.json → imported vault.
+            // All credential files stay read-only; refreshed OAuth is in-memory.
             CodexProvider(session: liveSession(),
+                          piAuth: piAuth,
                           tokenFallback: VaultCodexTokenFallback(vault: vault,
                                                                  providerID: CodexProvider.providerID)),
             // OpenCode CLI auth.json freshest > Pi's stored key > imported vault.

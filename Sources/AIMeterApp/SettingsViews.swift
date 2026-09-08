@@ -327,7 +327,7 @@ struct SettingsView: View {
         case "claude":
             return "Claude — Keychain (live) or Imported token."
         case "codex":
-            return "Codex — ~/.codex/auth.json live-read, Vault import fallback."
+            return "Codex — Pi openai-codex OAuth > ~/.codex/auth.json > Vault import. AIMeter reads credential files without writing or logging tokens."
         default:
             return "Connect or Disconnect this provider. Pi providers auto-connect and never log tokens."
         }

@@ -1,12 +1,40 @@
 import Foundation
 
-/// In-memory store for tokens refreshed via the OAuth refresh flow.
-/// We never write these back to Codex's own auth.json.
-actor CodexTokenStore {
-    private var token: RefreshedToken?
+private enum CodexCredentialSource: Sendable {
+    case pi
+    case nativeFile
+    case vault
+}
 
-    func current() -> RefreshedToken? { token }
-    func store(_ refreshed: RefreshedToken) { token = refreshed }
+private struct CodexUsageCredential: Sendable {
+    let source: CodexCredentialSource
+    let accessToken: String
+    let refreshToken: String?
+    let accountID: String?
+    let expiry: Date?
+    let lastRefresh: Date?
+}
+
+/// In-memory store for tokens refreshed via the OAuth refresh flow.
+/// Source-tagging prevents a Pi refresh from overriding a later native-file
+/// fallback (or vice versa). We never write refreshed credentials to disk.
+private actor CodexTokenStore {
+    private var token: RefreshedToken?
+    private var source: CodexCredentialSource?
+    private var sourceAccessToken: String?
+
+    func current(for source: CodexCredentialSource,
+                 sourceAccessToken: String) -> RefreshedToken? {
+        self.source == source && self.sourceAccessToken == sourceAccessToken ? token : nil
+    }
+
+    func store(_ refreshed: RefreshedToken,
+               for source: CodexCredentialSource,
+               sourceAccessToken: String) {
+        token = refreshed
+        self.source = source
+        self.sourceAccessToken = sourceAccessToken
+    }
 }
 
 /// Codex (ChatGPT) subscription usage via
@@ -19,8 +47,9 @@ actor CodexTokenStore {
 ///    "code_review_rate_limit": {"primary_window": {…}}?,
 ///    "credits": {"has_credits", "unlimited", "balance"}? }`
 ///
-/// Tokens come from `~/.codex/auth.json` (`$CODEX_HOME` honored). Refreshed
-/// tokens are kept in memory only — we never mutate Codex's own auth.json.
+/// Tokens prefer Pi's `openai-codex` OAuth entry, then
+/// `~/.codex/auth.json` (`$CODEX_HOME` honored), then AIMeter's vault import.
+/// Refreshed tokens are kept in memory only — we never mutate credential files.
 public final class CodexProvider: AIProvider, @unchecked Sendable {
     public static let usageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
     public static let providerID = ProviderID("codex")
@@ -28,62 +57,113 @@ public final class CodexProvider: AIProvider, @unchecked Sendable {
     public let id = CodexProvider.providerID
     public let displayName = "Codex (ChatGPT)"
 
+    /// Pi refreshes OAuth credentials with less than five minutes remaining.
+    /// Match that threshold while keeping AIMeter's refresh in memory only.
+    public static let piRefreshWindow: TimeInterval = 5 * 60
+
     private let session: URLSession
     private let authReader: FileCodexAuthReader
+    private let piAuth: (any PiAuthReading)?
     private let tokenRefresher: any TokenRefresher
     private let tokenFallback: (any CodexTokenFallback)?
     private let tokenStore = CodexTokenStore()
 
     public init(session: URLSession = .shared,
                 authReader: FileCodexAuthReader = FileCodexAuthReader(),
+                piAuth: (any PiAuthReading)? = nil,
                 tokenRefresher: any TokenRefresher = OpenAITokenRefresher(),
                 tokenFallback: (any CodexTokenFallback)? = nil) {
         self.session = session
         self.authReader = authReader
+        self.piAuth = piAuth
         self.tokenRefresher = tokenRefresher
         self.tokenFallback = tokenFallback
     }
 
     public func fetchUsage() async throws -> UsageSnapshot {
-        let credentials: CodexAuthFile
+        let credentials = try resolveCredentials()
+        let cached = await tokenStore.current(for: credentials.source,
+                                              sourceAccessToken: credentials.accessToken)
+        var accessToken = cached?.accessToken ?? credentials.accessToken
+        var refreshToken = cached?.refreshToken ?? credentials.refreshToken
+        var didRefresh = false
+
+        let shouldRefreshPi = credentials.source == .pi
+            && (cached?.expiresAt ?? credentials.expiry).map {
+                $0 <= Date().addingTimeInterval(Self.piRefreshWindow)
+            } == true
+        let shouldRefreshNative = credentials.source == .nativeFile
+            && (cached?.issuedAt ?? credentials.lastRefresh).map {
+                Date().timeIntervalSince($0) > FileCodexAuthReader.stalenessLimit
+            } == true
+
+        // Best-effort proactive refresh: an access token near its threshold can
+        // still be accepted. If refresh fails, try the token and let its HTTP
+        // result determine the provider state.
+        if (shouldRefreshPi || shouldRefreshNative), let currentRefreshToken = refreshToken {
+            if let refreshed = try? await performRefresh(refreshToken: currentRefreshToken,
+                                                           source: credentials.source,
+                                                           sourceAccessToken: credentials.accessToken) {
+                accessToken = refreshed.accessToken
+                refreshToken = refreshed.refreshToken ?? currentRefreshToken
+                didRefresh = true
+            }
+        }
+
         do {
-            credentials = try authReader.read()
-        } catch ProviderError.notInstalled {
-            // No ~/.codex/auth.json: fall back to an imported token in
-            // AIMeter's vault (Decision 3 import flow), when provided.
+            return try await fetchUsage(token: accessToken, accountID: credentials.accountID)
+        } catch ProviderError.unauthorized where refreshToken != nil && !didRefresh {
+            // Access token rejected — refresh once in memory and retry.
+            let refreshed = try await performRefresh(refreshToken: refreshToken!,
+                                                       source: credentials.source,
+                                                       sourceAccessToken: credentials.accessToken)
+            return try await fetchUsage(token: refreshed.accessToken, accountID: credentials.accountID)
+        }
+    }
+
+    private func resolveCredentials() throws -> CodexUsageCredential {
+        if let pi = piAuth?.oauthCredential(for: "openai-codex") {
+            return CodexUsageCredential(
+                source: .pi,
+                accessToken: pi.accessToken,
+                refreshToken: pi.refreshToken,
+                accountID: pi.accountID,
+                expiry: pi.expiry,
+                lastRefresh: nil
+            )
+        }
+
+        do {
+            let credentials = try authReader.read()
+            if let tokens = credentials.tokens, !tokens.accessToken.isEmpty {
+                return CodexUsageCredential(
+                    source: .nativeFile,
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    accountID: tokens.accountID,
+                    expiry: nil,
+                    lastRefresh: credentials.lastRefresh
+                )
+            }
             if let imported = tokenFallback?.importedAccessToken() {
-                return try await fetchUsage(token: imported, accountID: nil)
+                return vaultCredential(imported)
+            }
+            throw ProviderError.unauthorized(detail: "no OAuth tokens in auth.json")
+        } catch ProviderError.notInstalled {
+            if let imported = tokenFallback?.importedAccessToken() {
+                return vaultCredential(imported)
             }
             throw ProviderError.notInstalled
         }
-        guard let tokens = credentials.tokens, !tokens.accessToken.isEmpty else {
-            // API-key-only auth.json can't call the ChatGPT backend API.
-            // A vault-imported token is the fallback when configured.
-            if let imported = tokenFallback?.importedAccessToken() {
-                return try await fetchUsage(token: imported, accountID: nil)
-            }
-            throw ProviderError.unauthorized(detail: "no OAuth tokens in auth.json")
-        }
+    }
 
-        var accessToken = await tokenStore.current()?.accessToken ?? tokens.accessToken
-
-        // Proactive refresh when the token is stale (>8 days since last_refresh,
-        // per winusage/CodexBar docs). Best-effort: on refresh failure we still
-        // try the existing token and surface its error.
-        let lastRefresh = await tokenStore.current()?.issuedAt ?? credentials.lastRefresh
-        if let lastRefresh,
-           Date().timeIntervalSince(lastRefresh) > FileCodexAuthReader.stalenessLimit,
-           let refreshToken = tokens.refreshToken {
-            accessToken = (try? await performRefresh(refreshToken: refreshToken)) ?? accessToken
-        }
-
-        do {
-            return try await fetchUsage(token: accessToken, accountID: tokens.accountID)
-        } catch ProviderError.unauthorized where tokens.refreshToken != nil {
-            // Access token rejected — refresh once in memory and retry.
-            accessToken = try await performRefresh(refreshToken: tokens.refreshToken!)
-            return try await fetchUsage(token: accessToken, accountID: tokens.accountID)
-        }
+    private func vaultCredential(_ accessToken: String) -> CodexUsageCredential {
+        CodexUsageCredential(source: .vault,
+                             accessToken: accessToken,
+                             refreshToken: nil,
+                             accountID: nil,
+                             expiry: nil,
+                             lastRefresh: nil)
     }
 
     private func fetchUsage(token: String, accountID: String?) async throws -> UsageSnapshot {
@@ -105,10 +185,12 @@ public final class CodexProvider: AIProvider, @unchecked Sendable {
         }
     }
 
-    private func performRefresh(refreshToken: String) async throws -> String {
+    private func performRefresh(refreshToken: String,
+                                source: CodexCredentialSource,
+                                sourceAccessToken: String) async throws -> RefreshedToken {
         let refreshed = try await tokenRefresher.refresh(refreshToken: refreshToken)
-        await tokenStore.store(refreshed)
-        return refreshed.accessToken
+        await tokenStore.store(refreshed, for: source, sourceAccessToken: sourceAccessToken)
+        return refreshed
     }
 }
 

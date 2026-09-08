@@ -17,5 +17,12 @@
     "access": "ya29-pi-access",
     "refresh": "1//0-pi-refresh",
     "expires": 6942000000000
+  },
+  "openai-codex": {
+    "type": "oauth",
+    "access": "pi-codex-access",
+    "refresh": "pi-codex-refresh",
+    "expires": 6942000000000,
+    "accountId": "pi-account"
   }
 }

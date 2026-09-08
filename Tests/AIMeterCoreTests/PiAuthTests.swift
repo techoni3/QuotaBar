@@ -14,8 +14,9 @@ struct PiAuthTests {
         #expect(file.entries["antigravity"]?.access == "ya29-pi-access")
         #expect(file.entries["antigravity"]?.refresh == "1//0-pi-refresh")
         #expect(file.entries["antigravity"]?.expires == 6_942_000_000_000)
+        #expect(file.entries["openai-codex"]?.accountID == "pi-account")
         // Non-object root values (the _comment) are skipped, not fatal.
-        #expect(file.entries.count == 4)
+        #expect(file.entries.count == 5)
     }
 
     @Test func fileSourceReturnsApiKeyAndAccessToken() async throws {
@@ -29,6 +30,12 @@ struct PiAuthTests {
         #expect(source.refreshToken(for: "antigravity") == "1//0-pi-refresh")
         // expires is Unix milliseconds → Date.
         #expect(source.expiryDate(for: "antigravity") == Date(timeIntervalSince1970: 6_942_000_000))
+        #expect(source.accountID(for: "openai-codex") == "pi-account")
+        let codex = try #require(source.oauthCredential(for: "openai-codex"))
+        #expect(codex.accessToken == "pi-codex-access")
+        #expect(codex.refreshToken == "pi-codex-refresh")
+        #expect(codex.expiry == Date(timeIntervalSince1970: 6_942_000_000))
+        #expect(codex.accountID == "pi-account")
         // Unknown provider → nil.
         #expect(source.apiKey(for: "nope") == nil)
     }

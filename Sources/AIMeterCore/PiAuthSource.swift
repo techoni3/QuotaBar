@@ -13,10 +13,48 @@ public protocol PiAuthReading: Sendable {
     func refreshToken(for provider: String) -> String?
     /// OAuth access token expiry (the `expires` field, Unix milliseconds).
     func expiryDate(for provider: String) -> Date?
+    /// Optional provider account identifier (the `accountId` field).
+    func accountID(for provider: String) -> String?
+    /// One consistent OAuth entry snapshot. File-backed sources override this
+    /// so a concurrent Pi refresh cannot mix fields from separate file reads.
+    func oauthCredential(for provider: String) -> PiOAuthCredential?
+}
+
+/// Read-only OAuth credential snapshot from Pi's auth file.
+public struct PiOAuthCredential: Equatable, Sendable {
+    public let accessToken: String
+    public let refreshToken: String?
+    public let expiry: Date?
+    public let accountID: String?
+
+    public init(accessToken: String, refreshToken: String?, expiry: Date?, accountID: String?) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.expiry = expiry
+        self.accountID = accountID
+    }
+}
+
+public extension PiAuthReading {
+    /// Keeps existing conformers source-compatible when account metadata is
+    /// unavailable.
+    func accountID(for provider: String) -> String? { nil }
+
+    /// Compatibility default for non-file test doubles. `FilePiAuthSource`
+    /// overrides this with a single-read implementation.
+    func oauthCredential(for provider: String) -> PiOAuthCredential? {
+        guard let access = accessToken(for: provider), !access.isEmpty else { return nil }
+        return PiOAuthCredential(
+            accessToken: access,
+            refreshToken: refreshToken(for: provider),
+            expiry: expiryDate(for: provider),
+            accountID: accountID(for: provider)
+        )
+    }
 }
 
 /// Decoded `~/.pi/agent/auth.json`: map of provider id → credential entry
-/// `{type, key, access, refresh, expires}` (expires is Unix milliseconds).
+/// `{type, key, access, refresh, expires, accountId}` (expires is Unix milliseconds).
 /// Non-object entries (e.g. `_comment`) are skipped.
 public struct PiAuthFile: Decodable, Equatable, Sendable {
     public struct Entry: Decodable, Equatable, Sendable {
@@ -25,13 +63,20 @@ public struct PiAuthFile: Decodable, Equatable, Sendable {
         public let access: String?
         public let refresh: String?
         public let expires: Double?
+        public let accountID: String?
 
-        public init(type: String?, key: String?, access: String?, refresh: String?, expires: Double?) {
+        private enum CodingKeys: String, CodingKey {
+            case type, key, access, refresh, expires
+            case accountID = "accountId"
+        }
+
+        public init(type: String?, key: String?, access: String?, refresh: String?, expires: Double?, accountID: String? = nil) {
             self.type = type
             self.key = key
             self.access = access
             self.refresh = refresh
             self.expires = expires
+            self.accountID = accountID
         }
     }
 
@@ -85,8 +130,27 @@ public struct FilePiAuthSource: PiAuthReading {
     }
 
     public func expiryDate(for provider: String) -> Date? {
-        guard let millis = entry(for: provider)?.expires, millis > 0 else { return nil }
-        return Date(timeIntervalSince1970: millis / 1000)
+        Self.expiryDate(from: entry(for: provider)?.expires)
+    }
+
+    public func accountID(for provider: String) -> String? {
+        entry(for: provider).flatMap(\.accountID).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    public func oauthCredential(for provider: String) -> PiOAuthCredential? {
+        guard let entry = entry(for: provider), entry.type == "oauth",
+              let access = entry.access, !access.isEmpty else { return nil }
+        return PiOAuthCredential(
+            accessToken: access,
+            refreshToken: entry.refresh.flatMap { $0.isEmpty ? nil : $0 },
+            expiry: Self.expiryDate(from: entry.expires),
+            accountID: entry.accountID.flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private static func expiryDate(from milliseconds: Double?) -> Date? {
+        guard let milliseconds, milliseconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: milliseconds / 1000)
     }
 
     private func entry(for provider: String) -> PiAuthFile.Entry? {
