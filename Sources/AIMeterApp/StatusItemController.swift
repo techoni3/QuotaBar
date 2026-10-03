@@ -5,9 +5,8 @@ import SwiftUI
 /// Owns the menu bar status item, its menu, and the HUD panel toggle.
 @MainActor
 final class StatusItemController: NSObject, NSWindowDelegate {
-    /// Fixed HUD width — the 2-column provider-card grid (see HUDRootView).
-    /// 740pt fits 5–7 providers on a typical screen without scrolling.
-    static let hudPanelWidth: CGFloat = 740
+    /// Preferred width; the overlay is clamped to the active screen.
+    static let hudPanelWidth: CGFloat = 660
 
     private var statusItem: NSStatusItem!
     private var hudPanel: HUDPanel?
@@ -42,16 +41,7 @@ final class StatusItemController: NSObject, NSWindowDelegate {
 
     func install() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        // "gauge.with.dial" does not exist in this OS's SF Symbols set — a nil
-        // image silently blanks the status item. Use "gauge" and never allow a
-        // nil symbol to leave the item invisible.
-        if let image = NSImage(systemSymbolName: "gauge", accessibilityDescription: "AIMeter") {
-            image.isTemplate = true
-            statusItem.button?.image = image
-        } else {
-            statusItem.button?.title = "AIM"
-            NSLog("AIMeter: 'gauge' symbol unavailable; falling back to text status item")
-        }
+        statusItem.button?.image = Self.menuBarImage()
         rebuildMenu()
         registerGlobalHotkey()
 
@@ -132,39 +122,43 @@ final class StatusItemController: NSObject, NSWindowDelegate {
         panel.delegate = self
         let hosting = NSHostingView(rootView: HUDRootView(viewModel: viewModel, openSettings: { [weak self] in
             self?.showSettings(nil)
+        }, dismiss: { [weak panel] in
+            panel?.orderOut(nil)
         }))
         panel.contentView = hosting
-        // Auto-size to the content: width is fixed by the 2-column card grid,
-        // height follows the fitted content (clamped to 80% of the screen so
-        // long lists scroll instead of overflowing).
-        let fitting = hosting.fittingSize
-        let maxHeight = (NSScreen.main?.visibleFrame.height ?? 900) * 0.8
-        let size = NSSize(width: Self.hudPanelWidth,
-                          height: min(max(fitting.height, 120), maxHeight))
-        panel.setContentSize(size)
         return panel
     }
 
     private func positionAndShow(panel: NSPanel) {
-        let button = statusItem.button!
-        if let window = button.window {
-            panel.setFrameOrigin(statusItemAnchorOrigin(panel: panel, button: button, window: window))
+        // Follow the pointer's screen, including when summoned by the hotkey.
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            ?? NSScreen.main
+        guard let screen else { return }
+        let rows = viewModel.visibleRows
+        let heights = stride(from: 0, to: rows.count, by: 2).map { index in
+            rows[index..<min(index + 2, rows.count)].map { 130 + CGFloat($0.windows.count) * 44 }.max() ?? 148
         }
+        let height = max(280, 120 + heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * 14)
+        let frame = HUDOverlayLayout.frame(in: screen.visibleFrame,
+                                          preferredSize: NSSize(width: Self.hudPanelWidth, height: height))
+        panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
-        panel.orderFrontRegardless() // non-activating: show without stealing focus from the front app
+        panel.orderFrontRegardless()
     }
 
-    private func statusItemAnchorOrigin(panel: NSPanel, button: NSStatusBarButton, window: NSWindow) -> NSPoint {
-        let screen = window.screen ?? NSScreen.main!
-        let buttonRectInWindow = button.convert(button.bounds, to: nil)
-        let buttonRectOnScreen = window.convertToScreen(buttonRectInWindow)
-        let x = max(screen.visibleFrame.minX,
-                    min(buttonRectOnScreen.midX - panel.frame.width / 2,
-                        screen.visibleFrame.maxX - panel.frame.width))
-        // Anchor directly under the status item (Audit fix: was screen.minY,
-        // which put the panel at the BOTTOM of the screen).
-        let y = buttonRectOnScreen.minY - panel.frame.height - 8
-        return NSPoint(x: x.rounded(), y: y.rounded())
+    /// A crisp template icon with no dependency on the installed SF Symbols set.
+    static func menuBarImage() -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            NSColor.black.setFill()
+            for (index, height) in [6.0, 10.0, 14.0].enumerated() {
+                let bar = NSRect(x: 2 + CGFloat(index) * 5, y: 2, width: 3, height: height)
+                NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "AIMeter usage"
+        return image
     }
 
     @objc private func showSettings(_ sender: Any?) {
@@ -187,7 +181,7 @@ final class StatusItemController: NSObject, NSWindowDelegate {
 final class HUDPanel: NSPanel {
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 340, height: 220),
-                   styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+                   styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = "AIMeter"
         titleVisibility = .hidden
@@ -201,16 +195,21 @@ final class HUDPanel: NSPanel {
         hasShadow = true
         hidesOnDeactivate = false
 
-        if #available(macOS 26, *) {
-            // Liquid Glass: tinted chrome matches the modern HUD look.
-            appearance = NSAppearance(named: .vibrantDark)
-        }
+        appearance = NSAppearance(named: .vibrantDark)
     }
 
     override var canBecomeKey: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
         orderOut(nil)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { // Esc, even when no SwiftUI control has focus.
+            cancelOperation(nil)
+        } else {
+            super.keyDown(with: event)
+        }
     }
 
     override func resignKey() {

@@ -1,167 +1,129 @@
 import AIMeterCore
 import SwiftUI
 
-/// Root content of the HUD panel: one card per CONNECTED provider.
+/// A quiet, connected-only usage overlay. Provider management lives in Settings.
 struct HUDRootView: View {
     @ObservedObject var viewModel: HUDViewModel
-    var openSettings: () -> Void = {}
+    var openSettings: () -> Void
+    var dismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack {
-                Text("AIMeter")
-                    .font(.headline)
+        VStack(spacing: 20) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("AIMeter").font(.system(size: 16, weight: .semibold))
+                    Text("Usage at a glance")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button {
-                    viewModel.refreshAll()
-                } label: {
+                Button { viewModel.refreshAll() } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.borderless)
                 .help("Refresh all")
                 .accessibilityLabel("Refresh all providers")
-                Button(action: openSettings) {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(.borderless)
-                .help("Settings")
-                .accessibilityLabel("Open Settings")
+                Button(action: openSettings) { Image(systemName: "gearshape") }
+                    .help("Settings")
+                    .accessibilityLabel("Open Settings")
+                Button(action: dismiss) { Image(systemName: "xmark") }
+                    .help("Close (Esc)")
+                    .accessibilityLabel("Close overlay")
             }
-            .padding(.horizontal, 4)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .buttonStyle(.borderless)
 
             if viewModel.visibleRows.isEmpty {
-                emptyState
+                VStack(spacing: 8) {
+                    Text("No connected providers").font(.subheadline)
+                    Text("Enable or connect a provider in Settings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Open Settings", action: openSettings)
+                        .buttonStyle(.borderless)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)],
-                              alignment: .leading,
-                              spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14, alignment: .top),
+                                        GridItem(.flexible(), spacing: 14, alignment: .top)],
+                              alignment: .leading, spacing: 14) {
                         ForEach(viewModel.visibleRows) { row in
-                            ProviderCard(row: row,
-                                         viewModel: viewModel)
+                            ProviderCard(row: row)
                         }
                     }
+                    .padding(1)
                 }
             }
+            HStack {
+                Text("Connected providers")
+                Spacer()
+                Text("esc to close")
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
         }
-        .padding(14)
-        .frame(width: StatusItemController.hudPanelWidth)
-        .background(HUDChrome())
-        // Connect/Disconnect moved to Settings → Providers (PER-10); the HUD
-        // shows only connected rows and presents no modal sheets.
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "gauge")
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text("No providers connected yet")
-                .font(.headline)
-            Text("Connect or disconnect providers in Settings.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            HUDChrome()
+                .overlay(.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
-        .padding(.vertical, 26)
-        .frame(maxWidth: .infinity)
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                .allowsHitTesting(false)
+        }
     }
 }
 
 private struct ProviderCard: View {
     let row: ProviderRowState
-    @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
                 Image(systemName: Self.iconName(for: row.id))
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .frame(width: 18)
-                    .accessibilityHidden(true) // decorative; the row label conveys status
+                    .frame(width: 16)
+                    .accessibilityHidden(true)
                 Text(row.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("\(row.name), \(statusVoiceOverText)")
+                if row.windows.contains(where: { $0.tint == .red || $0.tint == .amber }) {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(row.windows.contains(where: { $0.tint == .red }) ? .red : .orange)
+                        .accessibilityLabel("High usage")
+                }
             }
-            Text(row.planName ?? "Usage")
-                .font(.caption)
+            Text(row.planName ?? "Connected")
+                .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            HStack(spacing: 8) {
-                statusChip
-                Spacer(minLength: 8)
-                Button {
-                    viewModel.refresh(row.id)
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.caption)
+            VStack(spacing: 12) {
+                ForEach(row.windows) { window in
+                    UsageBarView(title: window.title, percent: window.percent,
+                                 tint: window.tint, countdown: window.countdown)
                 }
-                .buttonStyle(.borderless)
-                .disabled(!row.enabled)
-                .help("Refresh \(row.name)")
-                .accessibilityLabel("Refresh \(row.name)")
-                Toggle("", isOn: Binding(
-                    get: { row.enabled },
-                    set: { viewModel.setEnabled(row.id, $0) }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .labelsHidden()
-                .accessibilityLabel("Enable \(row.name)")
-                .fixedSize()
-            }
-
-            if !row.enabled {
-                Text("Disabled")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            } else if let error = row.errorText {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let last = row.lastSuccessAt {
-                        Text("Data from \(last.formatted(date: .abbreviated, time: .shortened)) is stale.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            } else if !row.windows.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(row.windows) { window in
-                        UsageBarView(
-                            title: window.title,
-                            percent: window.percent,
-                            tint: window.tint,
-                            countdown: window.countdown
-                        )
-                    }
-                }
-            } else {
-                // Successful fetch with no windows (e.g. Manual with no plans).
-                Text("No plans yet — add them in Settings")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             if let fetched = row.fetchedAt {
                 Text("Updated \(fetched.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2)
+                    .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: .infinity, alignment: .topLeading)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.85))
-                .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-        )
+        .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity, alignment: .topLeading)
+        .padding(14)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
+        }
     }
 
-    /// Per-provider SF Symbol: claude/codex/opencode/antigravity/ollama/copilot/openrouter/manual.
     private static func iconName(for id: ProviderID) -> String {
         switch id.rawValue {
         case "claude": return "sparkles"
@@ -172,42 +134,7 @@ private struct ProviderCard: View {
         case "github-copilot", "copilot": return "person.2"
         case "openrouter": return "arrow.left.arrow.right"
         case "manual": return "pencil"
-        default: return "gauge"
-        }
-    }
-
-    /// Small status chip in the card header (OK / Watch / Critical / Local / Off).
-    private var statusChip: some View {
-        let (text, color): (String, Color)
-        if !row.enabled {
-            (text, color) = ("Off", .gray)
-        } else if row.status == .local {
-            (text, color) = ("Local", .blue)
-        } else if !row.windows.isEmpty {
-            switch row.windows.map(\.tint).max(by: { $0.severityRank < $1.severityRank }) {
-            case .red: (text, color) = ("Critical", .red)
-            case .amber: (text, color) = ("Watch", .orange)
-            default: (text, color) = ("OK", .green)
-            }
-        } else {
-            (text, color) = ("—", .gray)
-        }
-        return Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.16)))
-            .accessibilityLabel("\(row.name) status: \(text)")
-    }
-
-    private var statusVoiceOverText: String {
-        switch row.status {
-        case .ok: return "connected"
-        case .unauthorized: return "not connected"
-        case .disabled: return "disabled"
-        case .unavailable: return "unavailable"
-        case .local: return "local"
+        default: return "chart.bar"
         }
     }
 }
@@ -218,112 +145,56 @@ private struct UsageBarView: View {
     let tint: UsageTint
     let countdown: String?
 
+    private var barColor: Color {
+        switch tint {
+        case .red: return .red.opacity(0.85)
+        case .amber: return .orange.opacity(0.85)
+        default: return .white.opacity(0.55)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if let countdown {
-                    Text(countdown)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(title).lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(percent)%").monospacedDigit()
             }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.12))
-                    Capsule()
-                        .fill(Color(nsColor: tint.color))
-                        .frame(width: geo.size.width * CGFloat(percent) / 100)
+                    Capsule().fill(.white.opacity(0.08))
+                    Capsule().fill(barColor)
+                        .frame(width: geo.size.width * CGFloat(min(100, max(0, percent))) / 100)
                 }
             }
-            .frame(height: 8)
-            HStack(spacing: 6) {
-                Text("\(percent)%")
-                    .font(.caption2.bold())
-                    .monospacedDigit()
-                    .foregroundStyle(Color(nsColor: tint.color))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color(nsColor: tint.color).opacity(0.18)))
-                Text("used")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Spacer()
+            .frame(height: 3)
+            if let countdown {
+                Text(countdown)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
-    }
-
-    /// VoiceOver: “Session (5h): 27% used, resets in 3h 24m”.
-    private var accessibilityText: String {
-        let countdownText = countdown.map { ", \($0)" } ?? ""
-        return "\(title): \(percent)% used\(countdownText)"
+        .accessibilityLabel("\(title): \(percent)% used\(countdown.map { ", \($0)" } ?? "")")
     }
 }
 
-/// Window chrome: HUD material below v26, Liquid Glass on macOS 26+.
-struct HUDChrome: View {
-    var body: some View {
-        if #available(macOS 26, *) {
-            GlassHUDChrome()
-        } else {
-            FallbackHUDChrome()
-        }
-    }
-}
-
-@available(macOS 26, *)
-private struct GlassHUDChrome: View {
-    var body: some View {
-        LiquidGlassBackground()
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-}
-
-@available(macOS 26, *)
-private struct LiquidGlassBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        if let glass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
-            let view = glass.init()
-            view.wantsLayer = true
-            if let layer = view.layer {
-                layer.cornerRadius = 16
-                layer.cornerCurve = .continuous
-            }
-            return view
-        }
-        return EffectFallbackView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private struct FallbackHUDChrome: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = EffectFallbackView()
+/// Native behind-window blur keeps the desktop visible without a full-screen scrim.
+struct HUDChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
         view.wantsLayer = true
-        view.layer?.cornerRadius = 16
+        view.layer?.cornerRadius = 24
         view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private final class EffectFallbackView: NSVisualEffectView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        material = .hudWindow
-        blendingMode = .behindWindow
-        state = .active
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("not used — views are created in code")
-    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
