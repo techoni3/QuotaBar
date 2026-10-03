@@ -47,6 +47,10 @@ private actor CodexTokenStore {
 ///    "code_review_rate_limit": {"primary_window": {…}}?,
 ///    "credits": {"has_credits", "unlimited", "balance"}? }`
 ///
+/// The primary/secondary field names are positional, not semantic. The
+/// reported duration is authoritative when present because a weekly-only
+/// account can return its 7-day window as `primary_window`.
+///
 /// Tokens prefer Pi's `openai-codex` OAuth entry, then
 /// `~/.codex/auth.json` (`$CODEX_HOME` honored), then AIMeter's vault import.
 /// Refreshed tokens are kept in memory only — we never mutate credential files.
@@ -269,22 +273,34 @@ extension CodexUsageResponse {
     func snapshot(now: Date = Date()) -> UsageSnapshot {
         var windows: [UsageWindow] = []
         if let primary = rateLimit?.primaryWindow {
-            windows.append(UsageWindow(kind: .session5h,
+            windows.append(UsageWindow(kind: kind(for: primary, fallback: .session5h),
                                        usedPercent: clamp(primary.usedPercent),
                                        resetsAt: primary.resetAt))
         }
         if let secondary = rateLimit?.secondaryWindow {
-            windows.append(UsageWindow(kind: .week7d,
+            windows.append(UsageWindow(kind: kind(for: secondary, fallback: .week7d),
                                        usedPercent: clamp(secondary.usedPercent),
                                        resetsAt: secondary.resetAt))
         }
         if let codeReview = codeReviewRateLimit?.primaryWindow {
-            windows.append(UsageWindow(kind: .week7d,
+            windows.append(UsageWindow(kind: kind(for: codeReview, fallback: .week7d),
                                        usedPercent: clamp(codeReview.usedPercent),
                                        resetsAt: codeReview.resetAt,
                                        label: "Code review"))
         }
         return UsageSnapshot(planName: Self.planName(planType), windows: windows, fetchedAt: now)
+    }
+
+    /// Codex can move a quota between primary/secondary, so classify known
+    /// windows by their reported duration instead of by their slot. Preserve
+    /// the old slot fallback for unknown or legacy payloads.
+    private func kind(for window: Window, fallback: WindowKind) -> WindowKind {
+        switch window.limitWindowSeconds {
+        case 18_000: return .session5h       // 5 hours
+        case 604_800: return .week7d          // 7 days
+        case 2_592_000: return .month         // 30 days
+        default: return fallback
+        }
     }
 
     private func clamp(_ percent: Int) -> Int { min(100, max(0, percent)) }

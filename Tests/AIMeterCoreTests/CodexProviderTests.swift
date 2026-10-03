@@ -26,6 +26,38 @@ struct CodexProviderTests {
         #expect(codeReview?.usedPercent == 0)
     }
 
+    @Test func classifiesKnownWindowsByDurationNotPayloadSlot() throws {
+        let data = Data(#"""
+        {
+            "rate_limit": {
+                "primary_window": { "used_percent": 31, "limit_window_seconds": 604800 },
+                "secondary_window": { "used_percent": 12, "limit_window_seconds": 2592000 }
+            },
+            "code_review_rate_limit": {
+                "primary_window": { "used_percent": 8, "limit_window_seconds": 18000 }
+            }
+        }
+        """#.utf8)
+        let response = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
+
+        #expect(response.snapshot().windows.map(\.kind) == [.week7d, .month, .session5h])
+        #expect(response.snapshot().windows.map(\.title) == ["Week (7d)", "Month", "Code review"])
+    }
+
+    @Test func unknownWindowDurationPreservesSlotFallback() throws {
+        let data = Data(#"""
+        {
+            "rate_limit": {
+                "primary_window": { "used_percent": 31, "limit_window_seconds": 123456 },
+                "secondary_window": { "used_percent": 12, "limit_window_seconds": 123456 }
+            }
+        }
+        """#.utf8)
+        let response = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
+
+        #expect(response.snapshot().windows.map(\.kind) == [.session5h, .week7d])
+    }
+
     @Test func sendsBearerAndAccountHeaders() async throws {
         let stub = StubSession()
         stub.respond { _ in .ok(try Fixtures.load("codex-usage")) }
