@@ -95,7 +95,7 @@ private struct ProviderCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if row.windows.contains(where: { $0.tint == .red || $0.tint == .amber }) {
                     Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(row.windows.contains(where: { $0.tint == .red }) ? .red : .orange)
+                        .foregroundStyle(row.windows.contains(where: { $0.tint == .red }) ? .red : .yellow)
                         .accessibilityLabel("High usage")
                 }
             }
@@ -147,9 +147,9 @@ private struct UsageBarView: View {
 
     private var barColor: Color {
         switch tint {
+        case .green: return .green.opacity(0.85)
+        case .amber: return .yellow.opacity(0.9)
         case .red: return .red.opacity(0.85)
-        case .amber: return .orange.opacity(0.85)
-        default: return .white.opacity(0.55)
         }
     }
 
@@ -158,7 +158,9 @@ private struct UsageBarView: View {
             HStack(spacing: 8) {
                 Text(title).lineLimit(1)
                 Spacer(minLength: 4)
-                Text("\(percent)%").monospacedDigit()
+                Text("\(percent)%")
+                    .monospacedDigit()
+                    .foregroundStyle(barColor)
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
