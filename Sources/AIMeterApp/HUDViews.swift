@@ -4,6 +4,7 @@ import SwiftUI
 /// Root content of the HUD panel: one card per CONNECTED provider.
 struct HUDRootView: View {
     @ObservedObject var viewModel: HUDViewModel
+    var openSettings: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 10) {
@@ -18,14 +19,21 @@ struct HUDRootView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh all")
+                .accessibilityLabel("Refresh all providers")
+                Button(action: openSettings) {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.borderless)
+                .help("Settings")
+                .accessibilityLabel("Open Settings")
             }
             .padding(.horizontal, 4)
 
-            if viewModel.rows.isEmpty {
+            if viewModel.visibleRows.isEmpty {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)],
                               alignment: .leading,
                               spacing: 12) {
                         ForEach(viewModel.visibleRows) { row in
@@ -73,15 +81,17 @@ private struct ProviderCard: View {
                     .accessibilityHidden(true) // decorative; the row label conveys status
                 Text(row.name)
                     .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityLabel("\(row.name), \(statusVoiceOverText)")
-                if let plan = row.planName {
-                    Text(plan)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
+            }
+            Text(row.planName ?? "Usage")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            HStack(spacing: 8) {
                 statusChip
+                Spacer(minLength: 8)
                 Button {
                     viewModel.refresh(row.id)
                 } label: {
@@ -100,6 +110,7 @@ private struct ProviderCard: View {
                 .controlSize(.mini)
                 .labelsHidden()
                 .accessibilityLabel("Enable \(row.name)")
+                .fixedSize()
             }
 
             if !row.enabled {
@@ -128,18 +139,20 @@ private struct ProviderCard: View {
                         )
                     }
                 }
-                if let fetched = row.fetchedAt {
-                    Text("Updated \(fetched.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
             } else {
                 // Successful fetch with no windows (e.g. Manual with no plans).
                 Text("No plans yet — add them in Settings")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Spacer(minLength: 0)
+            if let fetched = row.fetchedAt {
+                Text("Updated \(fetched.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
+        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

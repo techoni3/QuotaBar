@@ -23,7 +23,7 @@ final class SettingsWindowController {
                 defer: false
             )
             window.title = "AIMeter Settings"
-            window.contentMinSize = NSSize(width: 560, height: 700)
+            window.contentMinSize = NSSize(width: 560, height: 540)
             window.contentView = NSHostingView(rootView: SettingsView(viewModel: viewModel,
                                                                       hotkeyChanged: hotkeyChanged,
                                                                       plansChanged: plansChanged))
@@ -37,9 +37,8 @@ final class SettingsWindowController {
     }
 }
 
-/// Settings with a tab layout (Polling / General / Providers / Manual) so the
-/// window stays resizable with a single scroll surface per tab (Audit fix:
-/// previously a Form inside a ScrollView with a fixed 440×720 frame).
+/// Explicit page navigation with a single, top-aligned scroll surface.
+/// Custom provider rows do not use Form's implicit label-column layout.
 struct SettingsView: View {
     @ObservedObject var viewModel: HUDViewModel
     var hotkeyChanged: () -> Void = {}
@@ -50,6 +49,11 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.hotkeyModifiers) private var hotkeyModifiers = SettingsDefaults.hotkeyModifiers
     @AppStorage(SettingsKeys.credentialMethod(for: "claude")) private var claudeCredentialMethod = SettingsDefaults.credentialMethodKeychain
 
+    private enum Page: String, CaseIterable {
+        case polling = "Polling", general = "General", providers = "Providers", manual = "Manual"
+    }
+
+    @State private var page: Page = .providers
     @State private var plans: [ManualPlan]
     @State private var draftName = ""
     @State private var draftPlanName = ""
@@ -85,18 +89,31 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        TabView {
-            pollingTab
-                .tabItem { Label("Polling", systemImage: "gauge") }
-            generalTab
-                .tabItem { Label("General", systemImage: "gearshape") }
-            providersTab
-                .tabItem { Label("Providers", systemImage: "sparkles") }
-            manualTab
-                .tabItem { Label("Manual", systemImage: "pencil") }
+        VStack(spacing: 0) {
+            Picker("Settings page", selection: $page) {
+                ForEach(Page.allCases, id: \.self) { page in
+                    Text(page.rawValue).tag(page)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(20)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    switch page {
+                    case .polling: pollingTab
+                    case .general: generalTab
+                    case .providers: providersTab
+                    case .manual: manualTab
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(20)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(20)
-        .frame(minWidth: 560, minHeight: 700)
+        .frame(minWidth: 560, minHeight: 540)
         .onChange(of: plans) { _, newPlans in
             debouncedSave(newPlans)
         }
@@ -109,8 +126,8 @@ struct SettingsView: View {
     // MARK: - Tabs
 
     private var pollingTab: some View {
-        Form {
-            Section("Provider polling") {
+        VStack(alignment: .leading, spacing: 20) {
+            settingsSection("Provider polling") {
                 Stepper(value: $refreshInterval, in: 15...300, step: 5) {
                     LabeledContent {
                         Text("\(refreshInterval) s")
@@ -128,9 +145,11 @@ struct SettingsView: View {
     }
 
     private var generalTab: some View {
-        Form {
-            Section("Global hotkey") {
-                LabeledContent("Summon HUD") {
+        VStack(alignment: .leading, spacing: 20) {
+            settingsSection("Global hotkey") {
+                HStack {
+                    Text("Summon HUD")
+                    Spacer()
                     HStack(spacing: 10) {
                         Text(currentHotkey.displayString)
                             .font(.system(.body, design: .monospaced))
@@ -155,7 +174,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("Launch at login") {
+            settingsSection("Launch at login") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLoginEnabled },
                     set: { newValue in
@@ -185,8 +204,8 @@ struct SettingsView: View {
     }
 
     private var providersTab: some View {
-        Form {
-            Section("Claude credentials") {
+        VStack(alignment: .leading, spacing: 20) {
+            settingsSection("Claude credentials") {
                 Picker("Credentials", selection: $claudeCredentialMethod) {
                     Text("Keychain (live)").tag(SettingsDefaults.credentialMethodKeychain)
                     Text("Imported token").tag(SettingsDefaults.credentialMethodImport)
@@ -194,9 +213,10 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
-            Section("Providers") {
+            settingsSection("Providers") {
                 ForEach(viewModel.rows) { row in
                     providerRow(row)
+                    if row.id != viewModel.rows.last?.id { Divider() }
                 }
                 if let connectError {
                     Text(connectError)
@@ -210,26 +230,40 @@ struct SettingsView: View {
         }
     }
 
+    private func settingsSection<Content: View>(_ title: String,
+                                               @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title).font(.headline)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+    }
+
     @ViewBuilder
     private func providerRow(_ row: ProviderRowState) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(statusColor(row.status))
+                    .fill(row.enabled ? statusColor(row.status) : .gray)
                     .frame(width: 7, height: 7)
                     .accessibilityHidden(true)
-                Text(row.name)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text(statusText(row))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.name)
+                        .font(.subheadline.weight(.semibold))
+                    Text(statusText(row))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Toggle("Enable", isOn: Binding(
                     get: { row.enabled },
                     set: { viewModel.setEnabled(row.id, $0) }
                 ))
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .fixedSize()
                 .accessibilityLabel("Enable \(row.name)")
                 Button {
                     helpFor = (helpFor == row.id ? nil : row.id)
@@ -238,6 +272,7 @@ struct SettingsView: View {
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Help for \(row.name)")
                 .help(helpText(for: row.id))
                 .popover(isPresented: Binding(
                     get: { helpFor == row.id },
@@ -301,6 +336,7 @@ struct SettingsView: View {
     }
 
     private func statusText(_ row: ProviderRowState) -> String {
+        guard row.enabled else { return "Disabled" }
         switch row.status {
         case .ok: return "Connected"
         case .local: return "Connected (local)"
@@ -341,8 +377,8 @@ struct SettingsView: View {
     }
 
     private var manualTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+        settingsSection("Manual subscriptions") {
+            VStack(alignment: .leading, spacing: 16) {
                 if plans.isEmpty {
                     Text("No manual subscriptions yet — add one below.")
                         .font(.callout)

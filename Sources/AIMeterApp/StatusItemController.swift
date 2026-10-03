@@ -130,7 +130,9 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private func makeHUDPanel() -> HUDPanel {
         let panel = HUDPanel()
         panel.delegate = self
-        let hosting = NSHostingView(rootView: HUDRootView(viewModel: viewModel))
+        let hosting = NSHostingView(rootView: HUDRootView(viewModel: viewModel, openSettings: { [weak self] in
+            self?.showSettings(nil)
+        }))
         panel.contentView = hosting
         // Auto-size to the content: width is fixed by the 2-column card grid,
         // height follows the fitted content (clamped to 80% of the screen so
