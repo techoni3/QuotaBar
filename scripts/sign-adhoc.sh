@@ -23,4 +23,8 @@ codesign --verify --deep --strict "$STAGE/AIMeter.app"
 
 rm -rf "$APP"
 mv "$STAGE/AIMeter.app" "$APP"
+# Clear FinderInfo that iCloud may add while moving the bundle back, then
+# verify the on-disk result as well as the staged signature above.
+xattr -cr "$APP"
+codesign --verify --deep --strict "$APP"
 echo "signed (adhoc): $(basename "$APP")"

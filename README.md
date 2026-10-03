@@ -23,6 +23,11 @@ scripts/make-app.sh    # assembles dist/AIMeter.app (ad-hoc signed, for dev)
 open dist/AIMeter.app
 ```
 
+For Command Line Tools installs where the newest macOS SDK is missing SwiftUI's
+macro plugin, use an installed compatible SDK for build/test/release. See
+[docs/build-system.md](docs/build-system.md) for the `AIMETER_SDK` example and
+SDK-specific commands.
+
 ## Releasing (v0.1.0+)
 
 `scripts/release.sh` builds → signs (Developer ID + hardened runtime +

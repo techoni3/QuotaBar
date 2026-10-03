@@ -6,11 +6,17 @@ set -euo pipefail
 
 CONFIG="${1:-debug}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN="$ROOT/.build/$CONFIG/AIMeterApp"
+if [[ -n "${AIMETER_SDK:-}" ]]; then
+  BIN_DIR="$(cd "$ROOT" && swift build -c "$CONFIG" --show-bin-path --sdk "$AIMETER_SDK")"
+else
+  BIN_DIR="$(cd "$ROOT" && swift build -c "$CONFIG" --show-bin-path)"
+fi
+BIN="$BIN_DIR/AIMeterApp"
 APP="$ROOT/dist/AIMeter.app"
 
 if [[ ! -x "$BIN" ]]; then
-  echo "error: binary not found at $BIN — run 'swift build -c $CONFIG' first" >&2
+  echo "error: binary not found at $BIN" >&2
+  echo "run 'swift build -c $CONFIG' with the same AIMETER_SDK, if set" >&2
   exit 1
 fi
 
