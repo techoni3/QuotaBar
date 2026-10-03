@@ -1,8 +1,8 @@
 # Contributing to AIMeter
 
-AIMeter is a native macOS SwiftPM project. Read the [README](README.md) for setup,
-installation, and the current licensing status. No project license has been
-selected; do not assume this repository grants redistribution rights.
+AIMeter is a native macOS SwiftPM project licensed under the [MIT License](LICENSE).
+Read the [README](README.md) for setup and installation. Contributions to this
+project are made under the same MIT License.
 
 ## Before making a change
 

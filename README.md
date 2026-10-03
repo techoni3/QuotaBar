@@ -17,7 +17,7 @@ then press **Esc** to dismiss it.
 **Project status:** working development build, not a published, notarized release.
 The current packaged build is **Apple Silicon (arm64), ad-hoc signed, and not
 notarized**. The repository still contains placeholder update-feed URLs.
-No open-source license has been selected yet; see [License](#license).
+Licensed under the [MIT License](LICENSE).
 
 ## Requirements
 
@@ -195,7 +195,5 @@ instead of posting sensitive details publicly.
 
 ## License
 
-**No project license is currently included.** Publicly visible source alone does
-not grant an open-source redistribution or modification license. The maintainer
-must choose and add a license before advertising AIMeter as an open-source
-release. Dependencies retain their respective upstream licenses.
+AIMeter is licensed under the [MIT License](LICENSE).
+Copyright © 2026 Nitin Sachdev. Dependencies retain their respective upstream licenses.
