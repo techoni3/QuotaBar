@@ -13,17 +13,20 @@ The project builds with SwiftPM (`swift-tools-version: 6.0`).
 - **Bundling**: `scripts/make-app.sh [release|debug]` assembles a minimal
   `dist/AIMeter.app` (Info.plist with `LSUIElement`, bundle id
   `app.aimeter.macos`, min OS 15.0) from the SwiftPM binary. CI/release
-  (M5) wraps this in codesign → notarize → DMG.
-- **Tests**: this CLT install ships neither the `Testing` nor the `XCTest`
-  module, so swift-testing is vendored as an SPM dependency to make
-  `swift test` work locally. On machines with full Xcode the dependency is
-  redundant (deprecation warnings appear but do not fail the build) and CI
-  could drop it later if desired.
-- **Full Xcode is only required at M5**: code signing (Developer ID),
-  notarization, and the GitHub Actions release run (CI runners have Xcode).
-- **Deployment target**: macOS 15.0. Liquid Glass specific APIs
-  (`NSGlassEffectView`) are gated behind `#available(macOS 26, *)` with an
-  `NSVisualEffectView` `.hudWindow` fallback for 15.
+  tooling wraps this in codesign → optional notarization → DMG. Local builds
+  use ad-hoc signing; notarization requires separately configured credentials.
+- **Tests**: swift-testing is declared as an SPM dependency for toolchain
+  compatibility. Provider tests use synthetic fixtures and stubbed requests;
+  Keychain integration tests create and clean up dedicated local entries.
+- **Public distribution**: Developer ID signing and notarization need the
+  appropriate Apple credentials and notarization tooling. Their presence must
+  be verified; a successful local ad-hoc build is not a notarized release.
+- **Deployment target**: macOS 15.0. The centered overlay uses a borderless,
+  non-activating `NSPanel` with `NSVisualEffectView` behind-window blur. Esc or
+  the close button dismisses it; opening it does not activate the app.
+- **Architecture**: current locally packaged binaries are arm64. SwiftPM builds
+  the host architecture by default; Intel/universal release packaging has not
+  been validated.
 
 ## Command Line Tools SDK compatibility
 
