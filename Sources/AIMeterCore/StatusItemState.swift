@@ -44,14 +44,15 @@ public enum StatusItemState: Int, Sendable, Equatable, CaseIterable {
         }
     }
 
-    /// Status-item tint. `.normal` returns nil → the template icon renders
-    /// monochrome; stale uses grey as the "outline/flat" variant.
+    /// Semantic neutral colors adapt to the status button's effective appearance.
+    /// Avoid an untinted custom black glyph or fixed grey that disappears on a
+    /// dark menu bar; warning and critical retain their status colors.
     @MainActor
     public var statusItemColor: NSColor? {
         switch self {
-        case .normal: return nil
+        case .normal: return .labelColor
         case .warning: return .systemOrange
-        case .stale: return .systemGray
+        case .stale: return .secondaryLabelColor
         case .critical: return .systemRed
         }
     }

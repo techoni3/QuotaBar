@@ -42,6 +42,7 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     func install() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = Self.menuBarImage()
+        applyIconState(.normal)
         rebuildMenu()
         registerGlobalHotkey()
 
