@@ -125,6 +125,30 @@ Pi's default credential file is `~/.pi/agent/auth.json`; Codex's default is
 Codex OAuth refreshes are retained in memory, not written back to Pi or Codex.
 Usage availability and window shapes depend on the provider and account plan.
 
+### Antigravity OAuth refresh configuration
+
+No Google OAuth client credentials are embedded in QuotaBar. Local Antigravity
+language-server discovery and unexpired access tokens work without them. Remote
+OAuth refresh requires both `AIMETER_ANTIGRAVITY_CLIENT_ID` and
+`AIMETER_ANTIGRAVITY_CLIENT_SECRET` in the app process's environment.
+
+Supply these through your own private launch configuration, using the OAuth
+client that issued the refresh token. An unrelated client will not work. Do not
+commit the values or put them in shell history, issues, screenshots, or test fixtures.
+Finder and `open` do not reliably inherit terminal environment variables; after
+configuring them securely, launch the executable directly:
+
+```bash
+: "${AIMETER_ANTIGRAVITY_CLIENT_ID:?Configure the OAuth client locally}"
+: "${AIMETER_ANTIGRAVITY_CLIENT_SECRET:?Configure the OAuth client locally}"
+export AIMETER_ANTIGRAVITY_CLIENT_ID AIMETER_ANTIGRAVITY_CLIENT_SECRET
+dist/AIMeter.app/Contents/MacOS/AIMeterApp
+```
+
+If the refresh client is absent, no refresh request is sent. An expired credential
+will require reconnection or a correctly configured launch; other providers are
+unaffected. QuotaBar never writes these credentials back to Pi.
+
 ### Privacy and security
 
 AIMeter uses credentials to request usage information directly from providers.

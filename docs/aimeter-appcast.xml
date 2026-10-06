@@ -10,7 +10,7 @@
       <sparkle:version>0.1.0</sparkle:version>
       <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
       <pubDate>&#10;&#13;</pubDate>
-      <enclosure url="https://github.com/OWNER/REPO/releases/download/v0.1.0/AIMeter-0.1.0.dmg" length="2493197" type="application/octet-stream" sparkle:edSignature="1RwockB2gL/kDZNJ4EMUxBrmFvzCLA72fTfcfOzkRJypmwcGgVmhfVk1votDZRlqYx5+j7CZqSnXtvIJ5fENAQ=="/>
+      <enclosure url="https://github.com/OWNER/REPO/releases/download/v0.1.0/AIMeter-0.1.0.dmg" length="2494613" type="application/octet-stream" sparkle:edSignature="RRX1be9MWodix934KAVmAj9q4GZ6ItaNng8aOdHK/HoU/A4wE/KiRnOn4lXJ3vchuBTZ+1oLhMd47wkAIKQTDg=="/>
     </item>
   </channel>
 </rss>

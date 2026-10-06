@@ -103,15 +103,17 @@ struct AntigravityProviderTests {
         #expect(snapshot.windows.count == 3)
     }
 
-    @Test func staleTokenTriggersOAuthRefreshWithPublicClient() async throws {
+    @Test func staleTokenTriggersOAuthRefreshWithConfiguredClient() async throws {
         let stub = StubSession()
+        var tokenCalls = 0
         stub.respond { request in
             if request.url?.absoluteString == "https://oauth2.googleapis.com/token" {
+                tokenCalls += 1
                 #expect(request.httpMethod == "POST")
                 let body = request.aimeterBodyText ?? ""
                 #expect(body.contains("grant_type=refresh_token"))
-                #expect(body.contains("client_id=redacted-google-client-id"))
-                #expect(body.contains("client_secret=redacted-google-client-secret"))
+                #expect(body.contains("client_id=test-antigravity-client"))
+                #expect(body.contains("client_secret=test-antigravity-secret"))
                 #expect(body.contains("refresh_token=stale-refresh"))
                 return .ok(Data(#"{"access_token": "fresh-token", "expires_in": 3600}"#.utf8))
             }
@@ -124,15 +126,14 @@ struct AntigravityProviderTests {
         let creds = AntigravityOAuthCredentials(accessToken: "stale-token",
                                                 expiry: Date().addingTimeInterval(-60),
                                                 refreshToken: "stale-refresh")
-        let refresher = StubRefresh(RefreshedToken(accessToken: "fresh-token", refreshToken: nil))
         let provider = AntigravityProvider(session: stub.session, localSession: stub.session,
                                            probe: StubLSProbe(nil),
                                            keychainReader: StubKeychain(creds),
-                                           refresher: refresher)
+                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session, client: testAntigravityOAuthClient))
 
         _ = try await provider.fetchUsage()
 
-        #expect(refresher.calls == ["stale-refresh"])
+        #expect(tokenCalls == 1)
     }
 
     @Test func noKeychainItemIsUnauthorized() async {

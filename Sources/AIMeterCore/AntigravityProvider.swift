@@ -210,28 +210,33 @@ public struct KeychainAntigravityKeychainReader: AntigravityKeychainReader {
     }
 }
 
-/// Refreshes an Antigravity OAuth token via oauth2.googleapis.com with the
-/// app's public (RFC 8252 installed-app) client constants.
+/// Refreshes an Antigravity OAuth token with externally supplied client credentials.
 public protocol AntigravityOAuthRefresher: Sendable {
     func refresh(refreshToken: String) async throws -> RefreshedToken
 }
 
 public struct GoogleAntigravityOAuthRefresher: AntigravityOAuthRefresher {
     private let session: URLSession
+    private let client: AntigravityOAuthClient?
 
-    public init(session: URLSession = .shared) {
+    public init(session: URLSession = .shared,
+                client: AntigravityOAuthClient? = .fromEnvironment()) {
         self.session = session
+        self.client = client
     }
 
     public func refresh(refreshToken: String) async throws -> RefreshedToken {
+        guard let client else {
+            throw ProviderError.unauthorized(detail: "Antigravity OAuth refresh client is not configured. Set AIMETER_ANTIGRAVITY_CLIENT_ID and AIMETER_ANTIGRAVITY_CLIENT_SECRET locally.")
+        }
         var request = URLRequest(url: AntigravityProvider.oauthTokenURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         var components = URLComponents()
         components.queryItems = [
             URLQueryItem(name: "grant_type", value: "refresh_token"),
-            URLQueryItem(name: "client_id", value: AntigravityProvider.oauthClientID),
-            URLQueryItem(name: "client_secret", value: AntigravityProvider.oauthClientSecret),
+            URLQueryItem(name: "client_id", value: client.clientID),
+            URLQueryItem(name: "client_secret", value: client.clientSecret),
             URLQueryItem(name: "refresh_token", value: refreshToken),
         ]
         request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
@@ -349,8 +354,6 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
     /// (both keep the pi refresh → quota ordering the spec requires).
     public static let fallbackQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     public static let oauthTokenURL = URL(string: "https://oauth2.googleapis.com/token")!
-    public static let oauthClientID = "redacted-google-client-id"
-    public static let oauthClientSecret = "redacted-google-client-secret"
     public static let userAgent = "antigravity/1.11.3 \(AntigravitySystem.osName)/\(AntigravitySystem.archName)"
 
     public let id = ProviderID("antigravity")
@@ -455,13 +458,13 @@ public final class AntigravityProvider: AIProvider, @unchecked Sendable {
         // Credential source order: Pi's stored OAuth (auto-connect when the
         // app/CLI is closed) → keychain live-read (Decision 3).
         // Pi path auto-refreshes via https://oauth2.googleapis.com/token with
-        // the public client constants when expiry ≤ now+60s, updating
+        // locally configured client credentials when expiry ≤ now+60s, updating
         // access/expiry in-memory only.
         var credentials: AntigravityOAuthCredentials?
         if let piAuth {
             // Pi auto-refresh lives in PiAntigravityTokenSource as required
             // by the spec — it checks expiry ≤ now+60s, calls
-            // https://oauth2.googleapis.com/token with the public client,
+            // https://oauth2.googleapis.com/token with the configured client,
             // and caches the new access/expiry in-memory (never writes to
             // ~/.pi). On refresh failure it throws the reconnect message.
             let piSource = PiAntigravityTokenSource(auth: piAuth, refresher: refresher)

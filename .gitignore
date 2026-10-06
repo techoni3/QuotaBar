@@ -11,3 +11,10 @@ xcuserdata/
 dist/
 # Derived asset intermediates (regenerate via scripts/make-assets.swift)
 Assets/icon.iconset/
+
+# Local credentials and signing material (synthetic test fixtures stay tracked).
+.env
+.env.*
+*.private
+*.p12
+/auth.json

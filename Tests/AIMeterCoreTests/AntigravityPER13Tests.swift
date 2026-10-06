@@ -17,8 +17,8 @@ struct AntigravityPER13Tests {
                 #expect(request.httpMethod == "POST")
                 let body = request.aimeterBodyText ?? ""
                 #expect(body.contains("grant_type=refresh_token"))
-                #expect(body.contains("client_id=redacted-google-client-id"))
-                #expect(body.contains("client_secret=redacted-google-client-secret"))
+                #expect(body.contains("client_id=test-antigravity-client"))
+                #expect(body.contains("client_secret=test-antigravity-secret"))
                 #expect(body.contains("refresh_token=pi-refresh-live"))
                 return .ok(Data(#"{"access_token": "fresh-live-token", "expires_in": 3600}"#.utf8))
             }
@@ -45,7 +45,7 @@ struct AntigravityPER13Tests {
                                            probe: StubLSProbe(nil),
                                            keychainReader: StubKeychain(nil),
                                            piAuth: piAuth,
-                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session))
+                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session, client: testAntigravityOAuthClient))
 
         let snapshot = try await provider.fetchUsage()
 
@@ -93,7 +93,7 @@ struct AntigravityPER13Tests {
                                            probe: StubLSProbe(nil),
                                            keychainReader: StubKeychain(nil),
                                            piAuth: piAuth,
-                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session))
+                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session, client: testAntigravityOAuthClient))
         do {
             _ = try await provider.fetchUsage()
             Issue.record("expected unauthorized")
@@ -128,7 +128,7 @@ struct AntigravityPER13Tests {
                                            probe: StubLSProbe(nil),
                                            keychainReader: StubKeychain(nil),
                                            piAuth: piAuth,
-                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session))
+                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session, client: testAntigravityOAuthClient))
         do {
             _ = try await provider.fetchUsage()
             Issue.record("expected unauthorized")
@@ -166,7 +166,7 @@ struct AntigravityPER13Tests {
                                            probe: StubLSProbe(nil),
                                            keychainReader: StubKeychain(nil),
                                            piAuth: piAuth,
-                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session))
+                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session, client: testAntigravityOAuthClient))
         _ = try await provider.fetchUsage()
         let dataAfter = try Data(contentsOf: piFile)
         #expect(String(data: dataAfter, encoding: .utf8) == original, "Pi file must not be mutated in-memory refresh")
@@ -214,7 +214,7 @@ struct AntigravityPER13Tests {
                                            probe: StubLSProbe(nil),
                                            keychainReader: StubKeychain(nil),
                                            piAuth: piAuth,
-                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session))
+                                           refresher: GoogleAntigravityOAuthRefresher(session: stub.session, client: testAntigravityOAuthClient))
         let snapshot = try await provider.fetchUsage()
         #expect(tokenCalls == 1)
         #expect(quotaCalls == 2)

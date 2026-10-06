@@ -206,7 +206,7 @@ public final class PiAntigravityTokenSource: @unchecked Sendable {
     }
 
     /// Auto-refreshing credential load: checks expiry (≤60s), refreshes via
-    /// the OAuth token endpoint with the Antigravity public client, and
+    /// the OAuth token endpoint with the locally configured client, and
     /// returns the new access/expiry. The caller is responsible for caching
     /// the result in-memory (provider's TokenCache) — never writes to
     /// `~/.pi`. Throws `ProviderError.unauthorized("Auth expired →
