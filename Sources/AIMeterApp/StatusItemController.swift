@@ -151,8 +151,9 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     static func menuBarImage() -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
             NSColor.black.setFill()
-            for (index, height) in [6.0, 10.0, 14.0].enumerated() {
-                let bar = NSRect(x: 2 + CGFloat(index) * 5, y: 2, width: 3, height: height)
+            let heights: [CGFloat] = [6, 10, 14]
+            for (index, height) in heights.enumerated() {
+                let bar = NSRect(x: CGFloat(2) + CGFloat(index) * CGFloat(5), y: 2, width: 3, height: height)
                 NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
             }
             return true
