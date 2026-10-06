@@ -1,6 +1,8 @@
-# AIMeter
+# QuotaBar
 
 A native macOS menu-bar app for checking AI subscription usage at a glance.
+The application is currently packaged as **AIMeter**; its bundle and credential
+storage names remain unchanged to preserve existing installations.
 Open a centered, translucent overlay without switching away from your current app,
 then press **Esc** to dismiss it.
 
@@ -53,12 +55,12 @@ and notarized package instead.
 
 ### From source
 
-Obtain the repository URL from the maintainer; replace `<repository-url>` below.
-If you already have a checkout, start with `cd aimeter`.
+Clone the public source repository. If you already have a checkout, use its
+existing directory instead.
 
 ```bash
-git clone <repository-url> aimeter
-cd aimeter
+git clone https://github.com/techoni3/QuotaBar.git
+cd QuotaBar
 
 # Install Apple's Command Line Tools if needed.
 xcode-select --install
@@ -188,8 +190,8 @@ label an ad-hoc build as notarized.
 ## Contributing and support
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and pull-request guidance.
-Once a public repository is available, use its issue tracker for ordinary bugs
-and feature requests. Include macOS version, hardware architecture, reproduction
+Use the [GitHub issue tracker](https://github.com/techoni3/QuotaBar/issues) for
+ordinary bugs and feature requests. Include macOS version, hardware architecture, reproduction
 steps, and redacted screenshots. For vulnerabilities, follow [SECURITY.md](SECURITY.md)
 instead of posting sensitive details publicly.
 

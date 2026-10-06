@@ -1,6 +1,6 @@
-# Security guidance
+# QuotaBar security guidance
 
-AIMeter is a development-stage, non-sandboxed macOS application that reads local
+QuotaBar's AIMeter app is a development-stage, non-sandboxed macOS application that reads local
 provider credentials and makes authenticated provider requests. It is not an
 authentication manager or a substitute for the providers' account-security tools.
 

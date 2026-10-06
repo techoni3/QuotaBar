@@ -1,6 +1,7 @@
-# Contributing to AIMeter
+# Contributing to QuotaBar
 
-AIMeter is a native macOS SwiftPM project licensed under the [MIT License](LICENSE).
+QuotaBar (currently packaged as AIMeter) is a native macOS SwiftPM project
+licensed under the [MIT License](LICENSE).
 Read the [README](README.md) for setup and installation. Contributions to this
 project are made under the same MIT License.
 
